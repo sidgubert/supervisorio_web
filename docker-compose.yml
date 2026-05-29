@@ -1,0 +1,35 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: scada-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-scada}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-scada}
+      POSTGRES_DB: ${DB_NAME:-scada}
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      # init.sql roda apenas na PRIMEIRA criação do volume (banco vazio)
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-scada} -d ${DB_NAME:-scada}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Opcional: cliente web para inspecionar o banco durante o desenvolvimento.
+  # Suba com:  docker compose --profile tools up -d
+  adminer:
+    image: adminer:latest
+    container_name: scada-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - timescaledb
+    profiles: ["tools"]
+
+volumes:
+  timescale_data:
