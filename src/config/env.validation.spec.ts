@@ -14,6 +14,10 @@ describe('validateEnv', () => {
       SIM_INTERVAL_MS: 1000,
       INGEST_FLUSH_MS: 2000,
       INGEST_BUFFER_MAX: 100_000,
+      MQTT_ENABLED: false,
+      MQTT_URL: 'mqtt://localhost:1883',
+      MQTT_USERNAME: '',
+      MQTT_PASSWORD: '',
     });
   });
 
@@ -22,6 +26,14 @@ describe('validateEnv', () => {
     expect(env.DB_PORT).toBe(5433);
     expect(env.SIM_ENABLED).toBe(false);
     expect(env.INGEST_BUFFER_MAX).toBe(500);
+  });
+
+  it('valida a URL do broker MQTT', () => {
+    expect(validateEnv({ MQTT_URL: 'mqtts://broker.local:8883' }).MQTT_URL).toBe(
+      'mqtts://broker.local:8883',
+    );
+    expect(() => validateEnv({ MQTT_URL: 'broker.local' })).toThrow(/não é uma URL válida/);
+    expect(() => validateEnv({ MQTT_URL: 'http://broker.local' })).toThrow(/deve usar mqtt:\/\//);
   });
 
   it('lista todos os erros de uma vez', () => {

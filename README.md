@@ -1,15 +1,21 @@
-# SCADA-EDU — Backend (Fase 1)
+# SCADA-EDU — Backend
 
-Sistema supervisório web educacional 4.0. Esqueleto da **Fase 1**: banco de
-séries temporais, backend NestJS e o "Teste de Carga Simulado" (gerador de
-senoides que persiste continuamente no banco).
+Sistema supervisório web educacional 4.0.
 
-## Stack desta fase
+- **Fase 1 (concluída):** banco de séries temporais, backend NestJS e o
+  "Teste de Carga Simulado" (gerador de senoides que persiste continuamente
+  no banco), com histórico agregado e tempo real via WebSocket.
+- **Fase 2 (em andamento):** aquisição real via MQTT (pronta), Modbus TCP e
+  OPC UA, todas convergindo para o mesmo formato de amostra.
+
+## Stack
 
 - **TimescaleDB** (extensão do PostgreSQL) — banco de séries temporais.
 - **NestJS** sobre **Express** (adaptador HTTP padrão do Nest).
 - **TypeORM** + driver `pg` — acesso ao banco.
 - **TypeScript** — tipagem estática das variáveis de processo.
+- **socket.io** — tempo real para o dashboard.
+- **MQTT.js** + **Mosquitto** — aquisição MQTT.
 
 ## Pré-requisitos
 
@@ -22,7 +28,7 @@ senoides que persiste continuamente no banco).
 # 1. Copie as variáveis de ambiente
 cp .env.example .env
 
-# 2. Suba o banco
+# 2. Suba o banco e o broker MQTT
 docker compose up -d
 #    (opcional) cliente web em http://localhost:8080 :
 #    docker compose --profile tools up -d
@@ -56,7 +62,8 @@ npm run format      # formata com Prettier
 ## Estrutura
 
 ```
-docker-compose.yml      TimescaleDB (+ Adminer opcional)
+docker-compose.yml      TimescaleDB, Mosquitto (+ Adminer opcional)
+docker/mosquitto/       configuração do broker MQTT de desenvolvimento
 src/
   main.ts               bootstrap da API (CORS, porta, shutdown hooks)
   app.module.ts         config + conexão TypeORM
@@ -80,6 +87,9 @@ src/
     simulator/
       signal.ts           geração de senoides (lógica pura, testável)
       simulator.source.ts fonte "sim": emite as senoides a cada SIM_INTERVAL_MS
+    mqtt/
+      mqtt-payload.ts     formatos de payload aceitos + validação de tópico
+      mqtt.source.ts      fonte "mqtt": assina o tópico de cada tag
   realtime/
     live.gateway.ts     WebSocket (socket.io /live) para o dashboard
 ```
@@ -88,9 +98,9 @@ src/
 
 ```
 SimulatorSource ─┐
-(MqttSource)    ─┼─ emit(SampleInput[]) ─► IngestionService ─► IngestionBuffer ─► MeasurementsService ─► TimescaleDB
-(ModbusSource)  ─┤                         normaliza + valida   limitado, 1 flush   insert em blocos
-(OpcUaSource)   ─┘           │                                  por vez             numa transação
+MqttSource      ─┼─ emit(SampleInput[]) ─► IngestionService ─► IngestionBuffer ─► MeasurementsService ─► TimescaleDB
+(ModbusSource)  ─┤                         normaliza + valida   limitado, 1 flush   INSERT único (unnest),
+(OpcUaSource)   ─┘           │                                  por vez             idempotente
                               └─► samples$ ─► LiveGateway ─► dashboard (socket.io /live)
 ```
 
@@ -111,6 +121,53 @@ SimulatorSource ─┐
 - As amostras válidas também saem em `samples$` assim que chegam, antes do
   banco: o tempo real continua funcionando mesmo com o banco fora do ar.
 
+## Fontes de aquisição
+
+Cada fonte adquire as tags do cadastro com `source` igual ao seu nome e
+`enabled = true`; o `address` da tag diz onde buscar o valor no protocolo.
+Criar, alterar ou remover uma tag pela API reconfigura a fonte na hora, sem
+reiniciar. O estado de cada fonte aparece em `GET /sources`.
+
+| Fonte  | Liga com            | `address` da tag              |
+| ------ | ------------------- | ----------------------------- |
+| `sim`  | `SIM_ENABLED=true`  | — (gera as 4 tags de exemplo) |
+| `mqtt` | `MQTT_ENABLED=true` | tópico exato, sem `+` ou `#`  |
+
+### MQTT
+
+Conecta em `MQTT_URL` (opcionalmente com `MQTT_USERNAME`/`MQTT_PASSWORD`) e
+assina, com QoS 1, o tópico de cada tag MQTT. Se o broker estiver fora do ar,
+a API sobe normalmente e a fonte reconecta sozinha, reassinando os tópicos.
+
+Payloads aceitos:
+
+```text
+21.5                                                   número
+true | false                                           booleano (1 / 0)
+{"value": 21.5}                                        JSON
+{"value": 21.5, "time": "2026-10-08T12:00:00Z", "quality": 192}
+```
+
+`time` (ou `timestamp`/`ts`) aceita ISO 8601 ou epoch em segundos ou
+milissegundos; sem ele, vale o instante de recebimento. `quality` (ou `q`) é
+o byte de qualidade (0–255). Payloads em outro formato são descartados, com
+aviso no log.
+
+Para testar com o broker do `docker compose`:
+
+```bash
+# cadastra uma tag MQTT
+curl -X POST localhost:3000/tags -H 'Content-Type: application/json' \
+  -d '{"tag":"TT-900.PV","unit":"C","source":"mqtt","address":"lab/tt900"}'
+
+# publica valores
+docker exec scada-mosquitto mosquitto_pub -t lab/tt900 -q 1 -m 21.5
+docker exec scada-mosquitto mosquitto_pub -t lab/tt900 -q 1 \
+  -m '{"value": 22, "quality": 192}'
+
+curl localhost:3000/measurements/TT-900.PV/latest
+```
+
 ## Configuração
 
 Todas as variáveis estão em `.env.example`. Elas são validadas na subida:
@@ -124,6 +181,8 @@ vez de a memória crescer sem limite.
 ## Endpoints
 
 - `GET /health` — `200 {status:'ok', db:'up'}` ou `503` se o banco não responder.
+- `GET /sources` — fontes de aquisição: conectada, tags adquiridas, amostras
+  aceitas e descartadas, última amostra.
 - `GET /measurements/:tag/latest?limit=100` — últimas amostras da tag
   (`limit` entre 1 e 5000).
 - `GET /measurements/:tag/history?from=&to=&bucket=` — série para gráficos.
@@ -232,10 +291,9 @@ migration inicial é idempotente e apenas se registra.
 
 ## Próximos passos (Fase 2)
 
-- Fontes reais via MQTT, Modbus TCP e OPC UA: cada uma é um novo
-  `AcquisitionSource` (ver `simulator.source.ts` como modelo), convertendo o
-  payload do protocolo para `SampleInput`.
+- Fontes Modbus TCP e OPC UA: cada uma é um novo `AcquisitionSource` (ver
+  `mqtt.source.ts` como modelo), lendo as tags do cadastro e convertendo o
+  valor do protocolo para `SampleInput`.
 - Alarmes: comparar as amostras de `samples$` com os limites da tabela `tags`.
 - Com taxas de aquisição altas, agrupar/limitar o envio do `LiveGateway`
   (hoje cada lote recebido vira um evento por tag).
-- Políticas de compressão e retenção do TimescaleDB para o histórico bruto.

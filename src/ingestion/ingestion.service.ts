@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { Observable, Subject } from 'rxjs';
 import { errorMessage } from '../common/error-message';
-import { AcquisitionSource } from './acquisition-source';
+import { AcquisitionSource, SourceHealth } from './acquisition-source';
 import { IngestionBuffer } from './ingestion-buffer';
 import { QUALITY_GOOD, Sample, SampleInput } from './sample';
 
@@ -17,11 +17,31 @@ import { QUALITY_GOOD, Sample, SampleInput } from './sample';
  * - no encerramento para as fontes primeiro e só então esvazia o buffer,
  *   para não perder amostras emitidas durante o shutdown.
  */
+/** Estado de uma fonte, exibido em GET /sources. */
+export interface SourceStatus extends SourceHealth {
+  name: string;
+  /** Amostras aceitas desde a subida da API. */
+  samples: number;
+  /** Amostras descartadas por serem inválidas. */
+  rejected: number;
+  lastSampleAt: Date | null;
+  /** Erro ao iniciar a fonte, se houve. */
+  startError: string | null;
+}
+
+interface SourceStats {
+  samples: number;
+  rejected: number;
+  lastSampleAt: Date | null;
+  startError: string | null;
+}
+
 @Injectable()
 export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(IngestionService.name);
   private readonly sources = new Map<string, AcquisitionSource>();
   private started = false;
+  private readonly stats = new Map<string, SourceStats>();
   private readonly live = new Subject<Sample[]>();
   /** Problemas por fonte acumulados desde o último aviso no log. */
   private readonly issues = new Map<
@@ -54,7 +74,8 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
         await source.start((samples) => this.ingest(source.name, samples));
         this.logger.log(`Fonte "${source.name}" iniciada.`);
       } catch (err) {
-        // Uma fonte com problema (ex: broker MQTT fora) não derruba as outras.
+        // Uma fonte com problema não derruba as outras.
+        this.statsFor(source.name).startError = errorMessage(err);
         this.logger.error(`Fonte "${source.name}" falhou ao iniciar: ${errorMessage(err)}`);
       }
     }
@@ -105,9 +126,31 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
         receivedAt,
       });
     }
+    const stats = this.statsFor(sourceName);
+    stats.samples += valid.length;
+    stats.rejected += inputs.length - valid.length;
+    if (valid.length > 0) stats.lastSampleAt = receivedAt;
     this.report(sourceName, inputs.length - valid.length, retimed, now);
     this.buffer.push(valid);
     if (valid.length > 0) this.live.next(valid);
+  }
+
+  /** Estado de todas as fontes registradas (GET /sources). */
+  status(): SourceStatus[] {
+    return [...this.sources.values()].map((source) => ({
+      name: source.name,
+      ...source.status?.(),
+      ...this.statsFor(source.name),
+    }));
+  }
+
+  private statsFor(source: string): SourceStats {
+    let st = this.stats.get(source);
+    if (!st) {
+      st = { samples: 0, rejected: 0, lastSampleAt: null, startError: null };
+      this.stats.set(source, st);
+    }
+    return st;
   }
 
   /**

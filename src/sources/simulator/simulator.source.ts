@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Env } from '../../config/env.validation';
-import { AcquisitionSource, EmitFn } from '../../ingestion/acquisition-source';
+import { AcquisitionSource, EmitFn, SourceHealth } from '../../ingestion/acquisition-source';
 import { IngestionService } from '../../ingestion/ingestion.service';
 import { DEFAULT_SIGNALS, generateSample } from './signal';
 
@@ -43,5 +43,10 @@ export class SimulatorSource implements AcquisitionSource, OnModuleInit {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+  }
+
+  status(): SourceHealth {
+    const interval = this.config.get('SIM_INTERVAL_MS', { infer: true });
+    return { tags: DEFAULT_SIGNALS.length, detail: `senoides a cada ${interval} ms` };
   }
 }

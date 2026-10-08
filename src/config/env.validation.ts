@@ -21,6 +21,11 @@ export interface Env {
   SIM_INTERVAL_MS: number;
   INGEST_FLUSH_MS: number;
   INGEST_BUFFER_MAX: number;
+  MQTT_ENABLED: boolean;
+  MQTT_URL: string;
+  /** Vazio = sem autenticação. */
+  MQTT_USERNAME: string;
+  MQTT_PASSWORD: string;
 }
 
 /** Variáveis de ambiente cruas (sempre strings, vindas do process.env/.env). */
@@ -55,6 +60,22 @@ export function validateEnv(raw: Raw): Env {
     return def;
   };
 
+  const url = (key: string, def: string, protocols: string[]): string => {
+    const v = str(key, def);
+    let protocol: string;
+    try {
+      protocol = new URL(v).protocol.replace(/:$/, '');
+    } catch {
+      errors.push(`${key}="${v}" não é uma URL válida`);
+      return def;
+    }
+    if (!protocols.includes(protocol)) {
+      errors.push(`${key}="${v}" deve usar ${protocols.map((p) => `${p}://`).join(', ')}`);
+      return def;
+    }
+    return v;
+  };
+
   const env: Env = {
     DB_HOST: str('DB_HOST', 'localhost'),
     DB_PORT: int('DB_PORT', 5432, 1, 65535),
@@ -67,6 +88,10 @@ export function validateEnv(raw: Raw): Env {
     SIM_INTERVAL_MS: int('SIM_INTERVAL_MS', 1000, 10, 3_600_000),
     INGEST_FLUSH_MS: int('INGEST_FLUSH_MS', 2000, 10, 3_600_000),
     INGEST_BUFFER_MAX: int('INGEST_BUFFER_MAX', 100_000, 100, 10_000_000),
+    MQTT_ENABLED: bool('MQTT_ENABLED', false),
+    MQTT_URL: url('MQTT_URL', 'mqtt://localhost:1883', ['mqtt', 'mqtts', 'tcp', 'ws', 'wss']),
+    MQTT_USERNAME: str('MQTT_USERNAME', ''),
+    MQTT_PASSWORD: str('MQTT_PASSWORD', ''),
   };
 
   if (errors.length > 0) {

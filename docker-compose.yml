@@ -20,6 +20,17 @@ services:
       timeout: 5s
       retries: 5
 
+  # Broker MQTT para a fonte MQTT (MQTT_ENABLED=true). Sem autenticação:
+  # apenas para desenvolvimento/laboratório (ver docker/mosquitto/mosquitto.conf).
+  mosquitto:
+    image: eclipse-mosquitto:2.1.2-alpine
+    container_name: scada-mosquitto
+    restart: unless-stopped
+    ports:
+      - '1883:1883'
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
   # Opcional: cliente web para inspecionar o banco durante o desenvolvimento.
   # Suba com:  docker compose --profile tools up -d
   adminer:

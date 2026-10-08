@@ -18,6 +18,7 @@ export class AppController {
         tags: 'GET|POST /tags',
         tag: 'GET|PATCH|DELETE /tags/:tag',
         live: 'socket.io namespace /live (subscribe { tags? })',
+        sources: 'GET /sources',
       },
     };
   }

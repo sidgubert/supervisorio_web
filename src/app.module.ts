@@ -9,6 +9,7 @@ import { buildDataSourceOptions } from './database/typeorm.config';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { MqttModule } from './sources/mqtt/mqtt.module';
 import { SimulatorModule } from './sources/simulator/simulator.module';
 import { TagsModule } from './tags/tags.module';
 
@@ -44,6 +45,7 @@ import { TagsModule } from './tags/tags.module';
     IngestionModule,
     RealtimeModule,
     SimulatorModule,
+    MqttModule,
   ],
 })
 export class AppModule {}
