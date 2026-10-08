@@ -49,13 +49,32 @@ docker exec -it scada-timescaledb \
 docker-compose.yml      TimescaleDB (+ Adminer opcional)
 db/init.sql             extensão timescaledb + hypertable measurements
 src/
-  main.ts               bootstrap da API (CORS, porta)
+  main.ts               bootstrap da API (CORS, porta, shutdown hooks)
   app.module.ts         config + conexão TypeORM
+  app.controller.ts     GET / e GET /health (verifica o banco; 503 se fora)
+  config/
+    env.validation.ts   validação/conversão das variáveis de ambiente
   measurements/         entidade + service (insert em lote, consulta)
   simulator/
     signal.ts           geração de senoides (lógica pura, testável)
     simulator.service.ts loop de geração + flush em lote no banco
 ```
+
+## Configuração
+
+Todas as variáveis estão em `.env.example`. Elas são validadas na subida:
+se alguma estiver inválida (ex: `SIM_INTERVAL_MS=abc`), a API não sobe e
+lista os problemas.
+
+`SIM_BUFFER_MAX` limita o buffer em memória do simulador: se o banco ficar
+fora do ar, as amostras mais antigas são descartadas (com aviso no log) em
+vez de a memória crescer sem limite.
+
+## Endpoints
+
+- `GET /health` — `200 {status:'ok', db:'up'}` ou `503` se o banco não responder.
+- `GET /measurements/:tag/latest?limit=100` — últimas amostras da tag
+  (`limit` entre 1 e 5000).
 
 ## Modelo de dados
 

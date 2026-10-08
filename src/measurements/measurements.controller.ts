@@ -1,5 +1,16 @@
-import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Param,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
 import { MeasurementsService } from './measurements.service';
+
+/** Teto de amostras por consulta, para proteger o banco e a API. */
+const MAX_LIMIT = 5000;
 
 @Controller('measurements')
 export class MeasurementsController {
@@ -9,8 +20,11 @@ export class MeasurementsController {
   @Get(':tag/latest')
   latest(
     @Param('tag') tag: string,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('limit', new DefaultValuePipe(100), ParseIntPipe) limit: number,
   ) {
-    return this.measurements.latest(tag, limit ?? 100);
+    if (limit < 1 || limit > MAX_LIMIT) {
+      throw new BadRequestException(`limit deve estar entre 1 e ${MAX_LIMIT}`);
+    }
+    return this.measurements.latest(tag, limit);
   }
 }

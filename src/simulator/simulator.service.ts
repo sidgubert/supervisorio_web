@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Env } from '../config/env.validation';
 import { MeasurementsService } from '../measurements/measurements.service';
 import { DEFAULT_SIGNALS, generateSample, Sample } from './signal';
 
@@ -27,20 +28,19 @@ export class SimulatorService implements OnModuleInit, OnModuleDestroy {
   private dropped = 0;
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly config: ConfigService<Env, true>,
     private readonly measurements: MeasurementsService,
   ) {}
 
   onModuleInit() {
-    const enabled = this.config.get('SIM_ENABLED', 'true') === 'true';
-    if (!enabled) {
+    if (!this.config.get('SIM_ENABLED', { infer: true })) {
       this.logger.log('Simulador desabilitado (SIM_ENABLED=false).');
       return;
     }
 
-    const interval = Number(this.config.get('SIM_INTERVAL_MS', 1000));
-    const flush = Number(this.config.get('SIM_BATCH_FLUSH_MS', 2000));
-    this.maxBuffer = Number(this.config.get('SIM_BUFFER_MAX', this.maxBuffer));
+    const interval = this.config.get('SIM_INTERVAL_MS', { infer: true });
+    const flush = this.config.get('SIM_BATCH_FLUSH_MS', { infer: true });
+    this.maxBuffer = this.config.get('SIM_BUFFER_MAX', { infer: true });
 
     // 1) Gera amostras em memória a cada `interval` ms.
     this.genTimer = setInterval(() => this.generate(), interval);

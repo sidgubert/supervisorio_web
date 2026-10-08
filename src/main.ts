@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { Env } from './config/env.validation';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -9,8 +10,8 @@ async function bootstrap() {
   // gravar o buffer pendente antes de o processo encerrar.
   app.enableShutdownHooks();
 
-  const config = app.get(ConfigService);
-  const port = Number(config.get('PORT', 3000));
+  const config = app.get<ConfigService<Env, true>>(ConfigService);
+  const port = config.get('PORT', { infer: true });
   await app.listen(port);
   console.log(`API em http://localhost:${port}`);
 }
