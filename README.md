@@ -43,6 +43,15 @@ docker exec -it scada-timescaledb \
   "SELECT tag, count(*), max(time) FROM measurements GROUP BY tag;"
 ```
 
+## Qualidade de código
+
+```bash
+npm test            # testes unitários (Jest)
+npm run test:cov    # testes + relatório de cobertura em coverage/
+npm run lint        # ESLint (typescript-eslint, regras com checagem de tipos)
+npm run format      # formata com Prettier
+```
+
 ## Estrutura
 
 ```
@@ -78,7 +87,7 @@ vez de a memória crescer sem limite.
 
 ## Modelo de dados
 
-Tabela única `measurements` em formato *long* (uma linha por amostra de cada
+Tabela única `measurements` em formato _long_ (uma linha por amostra de cada
 tag): `time, tag, value, quality, source`. Esse formato evita alterar o schema
 ao adicionar novas tags e é o recomendado para hypertables.
 

@@ -22,7 +22,8 @@ export interface Env {
   SIM_BUFFER_MAX: number;
 }
 
-type Raw = Record<string, unknown>;
+/** Variáveis de ambiente cruas (sempre strings, vindas do process.env/.env). */
+type Raw = Record<string, string | undefined>;
 
 export function validateEnv(raw: Raw): Env {
   const errors: string[] = [];
@@ -30,7 +31,7 @@ export function validateEnv(raw: Raw): Env {
   const str = (key: string, def: string): string => {
     const v = raw[key];
     if (v === undefined || v === '') return def;
-    return String(v);
+    return v;
   };
 
   const int = (key: string, def: number, min: number, max: number): number => {
@@ -47,8 +48,8 @@ export function validateEnv(raw: Raw): Env {
   const bool = (key: string, def: boolean): boolean => {
     const v = raw[key];
     if (v === undefined || v === '') return def;
-    if (v === true || v === 'true') return true;
-    if (v === false || v === 'false') return false;
+    if (v === 'true') return true;
+    if (v === 'false') return false;
     errors.push(`${key}="${v}" deve ser "true" ou "false"`);
     return def;
   };

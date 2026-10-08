@@ -46,7 +46,7 @@ export class SimulatorService implements OnModuleInit, OnModuleDestroy {
     this.genTimer = setInterval(() => this.generate(), interval);
 
     // 2) Descarrega o buffer no banco a cada `flush` ms (escrita em lote).
-    this.flushTimer = setInterval(() => this.flush(), flush);
+    this.flushTimer = setInterval(() => void this.flush(), flush);
 
     this.logger.log(
       `Simulador ativo: ${DEFAULT_SIGNALS.length} tags, gerando a cada ${interval}ms, gravando a cada ${flush}ms.`,
