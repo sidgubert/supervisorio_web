@@ -1,7 +1,9 @@
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
+import { DatabaseExceptionFilter } from './common/database-exception.filter';
 import { Env, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeorm.config';
 import { IngestionModule } from './ingestion/ingestion.module';
@@ -12,6 +14,14 @@ import { TagsModule } from './tags/tags.module';
 
 @Module({
   controllers: [AppController],
+  providers: [
+    // Valida os corpos (DTOs com class-validator); campos desconhecidos -> 400.
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+    },
+    { provide: APP_FILTER, useClass: DatabaseExceptionFilter },
+  ],
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     TypeOrmModule.forRootAsync({

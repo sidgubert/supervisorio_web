@@ -134,8 +134,33 @@ vez de a memória crescer sem limite.
   Resposta: `{ tag, bucket, from, to, points: [{ time, avg, min, max, count }] }`
   (no `raw`, `avg = min = max = value` e `count = 1`).
 
-- `GET /tags` — tags cadastradas.
-- `GET /tags/:tag` — uma tag (`404` se não cadastrada).
+- `GET /tags` — tags cadastradas; `GET /tags/:tag` — uma tag (`404` se não existir).
+- `POST /tags` — cadastra (`409` se já existir). Só `tag` é obrigatório:
+
+  ```json
+  {
+    "tag": "PT-500.PV",
+    "description": "Pressão do vaso",
+    "unit": "bar",
+    "engMin": 0,
+    "engMax": 16,
+    "alarmL": 2,
+    "alarmH": 12,
+    "source": "mqtt",
+    "address": "planta/pt500",
+    "enabled": true
+  }
+  ```
+
+  Nome: letras, dígitos e `. _ : -` (ex: `TIC-101.PV`). Limites em ordem
+  (`alarmLL ≤ alarmL < alarmH ≤ alarmHH`, todo limite baixo abaixo de todo
+  alto) e `engMin < engMax`. O `address` é conferido no formato da fonte.
+
+- `PATCH /tags/:tag` — altera campos (ausente = mantém; `null` = apaga).
+- `DELETE /tags/:tag` — remove do cadastro (`204`); o histórico é mantido.
+
+Erros de validação respondem `400` com a lista de problemas; campos
+desconhecidos também são recusados.
 
 ## Tempo real (WebSocket)
 

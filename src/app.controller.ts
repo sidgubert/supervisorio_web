@@ -15,8 +15,8 @@ export class AppController {
         health: 'GET /health',
         latest: 'GET /measurements/:tag/latest?limit=100',
         history: 'GET /measurements/:tag/history?from=&to=&bucket=auto|raw|1m|1h',
-        tags: 'GET /tags',
-        tag: 'GET /tags/:tag',
+        tags: 'GET|POST /tags',
+        tag: 'GET|PATCH|DELETE /tags/:tag',
         live: 'socket.io namespace /live (subscribe { tags? })',
       },
     };
