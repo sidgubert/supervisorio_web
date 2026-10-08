@@ -17,6 +17,15 @@ export class SimulatorService implements OnModuleInit, OnModuleDestroy {
   private genTimer?: NodeJS.Timeout;
   private flushTimer?: NodeJS.Timeout;
 
+  /** Gravação em andamento; impede dois flush simultâneos. */
+  private inFlight?: Promise<void>;
+  /** Teto do buffer: se o banco ficar fora, descarta as amostras mais antigas. */
+  private maxBuffer = 100_000;
+  /** Máximo de amostras gravadas por flush, para manter cada ciclo curto. */
+  private maxPerFlush = 10_000;
+  /** Amostras descartadas desde o último aviso no log. */
+  private dropped = 0;
+
   constructor(
     private readonly config: ConfigService,
     private readonly measurements: MeasurementsService,
@@ -31,6 +40,7 @@ export class SimulatorService implements OnModuleInit, OnModuleDestroy {
 
     const interval = Number(this.config.get('SIM_INTERVAL_MS', 1000));
     const flush = Number(this.config.get('SIM_BATCH_FLUSH_MS', 2000));
+    this.maxBuffer = Number(this.config.get('SIM_BUFFER_MAX', this.maxBuffer));
 
     // 1) Gera amostras em memória a cada `interval` ms.
     this.genTimer = setInterval(() => this.generate(), interval);
@@ -43,9 +53,16 @@ export class SimulatorService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  onModuleDestroy() {
+  /** Para os timers e grava o que restou no buffer antes de encerrar. */
+  async onModuleDestroy() {
     if (this.genTimer) clearInterval(this.genTimer);
     if (this.flushTimer) clearInterval(this.flushTimer);
+    await this.inFlight;
+    while (this.buffer.length > 0) {
+      const before = this.buffer.length;
+      await this.flush();
+      if (this.buffer.length >= before) break; // banco indisponível: desiste
+    }
   }
 
   private generate() {
@@ -53,19 +70,43 @@ export class SimulatorService implements OnModuleInit, OnModuleDestroy {
     for (const spec of DEFAULT_SIGNALS) {
       this.buffer.push(generateSample(spec, now));
     }
+    this.enforceCap();
   }
 
-  private async flush() {
-    if (this.buffer.length === 0) return;
-    const batch = this.buffer;
-    this.buffer = [];
+  private flush(): Promise<void> {
+    // Se a gravação anterior ainda não terminou, pula este ciclo.
+    if (this.inFlight || this.buffer.length === 0) return this.inFlight ?? Promise.resolve();
+    this.inFlight = this.writeNext().finally(() => (this.inFlight = undefined));
+    return this.inFlight;
+  }
+
+  private async writeNext() {
+    if (this.dropped > 0) {
+      this.logger.warn(`Buffer cheio: ${this.dropped} amostras antigas descartadas.`);
+      this.dropped = 0;
+    }
+
+    const batch = this.buffer.splice(0, this.maxPerFlush);
     try {
       const n = await this.measurements.insertBatch(batch);
-      this.logger.debug(`Gravadas ${n} amostras.`);
+      this.logger.debug(`Gravadas ${n} amostras (${this.buffer.length} pendentes).`);
     } catch (err) {
-      // Em caso de falha, devolve as amostras ao buffer para nova tentativa.
-      this.buffer.unshift(...batch);
-      this.logger.error(`Falha ao gravar lote: ${(err as Error).message}`);
+      // Em caso de falha, devolve as amostras ao início do buffer (mantendo
+      // a ordem) para nova tentativa no próximo ciclo.
+      this.buffer = batch.concat(this.buffer);
+      this.enforceCap();
+      this.logger.error(
+        `Falha ao gravar lote (${this.buffer.length} pendentes): ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Mantém o buffer dentro do teto, descartando as amostras mais antigas. */
+  private enforceCap() {
+    const excess = this.buffer.length - this.maxBuffer;
+    if (excess > 0) {
+      this.buffer.splice(0, excess);
+      this.dropped += excess;
     }
   }
 }
