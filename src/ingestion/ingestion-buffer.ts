@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Observable, Subject } from 'rxjs';
 import { ConfigService } from '@nestjs/config';
 import { errorMessage } from '../common/error-message';
 import { Env } from '../config/env.validation';
@@ -7,6 +8,15 @@ import { Sample } from './sample';
 
 /** Máximo de amostras gravadas por flush, para manter cada ciclo curto. */
 const MAX_PER_FLUSH = 10_000;
+
+/** Uma gravação em lote concluída. */
+export interface InsertEvent {
+  samples: Sample[];
+  /** Quantas foram de fato inseridas (as já existentes são ignoradas). */
+  inserted: number;
+  /** Duração do INSERT, em ms. */
+  ms: number;
+}
 
 /**
  * Buffer em memória entre as fontes e o banco, compartilhado por todas elas.
@@ -28,6 +38,10 @@ export class IngestionBuffer {
   private inFlight?: Promise<void>;
   /** Amostras descartadas desde o último aviso no log. */
   private dropped = 0;
+  private readonly insertsSubject = new Subject<InsertEvent>();
+
+  /** Cada gravação concluída no banco (para as métricas de desempenho). */
+  readonly inserts$: Observable<InsertEvent> = this.insertsSubject.asObservable();
 
   private readonly flushMs: number;
   private readonly maxBuffer: number;
@@ -85,7 +99,9 @@ export class IngestionBuffer {
 
     const batch = this.buffer.splice(0, this.maxPerFlush);
     try {
+      const t0 = performance.now();
       const n = await this.measurements.insertBatch(batch);
+      this.insertsSubject.next({ samples: batch, inserted: n, ms: performance.now() - t0 });
       // n < batch.length: amostras que o banco já tinha (ex: lote regravado
       // após uma falha cuja confirmação se perdeu) foram ignoradas.
       const dup = batch.length - n;

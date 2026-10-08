@@ -24,6 +24,15 @@ const INSERT_SQL = `
   )
   SELECT count(*)::int AS inserted FROM inserted`;
 
+/** Última amostra de uma tag (GET /api/dashboard/tags). */
+export interface LatestSample {
+  tag: string;
+  time: Date;
+  value: number;
+  quality: number;
+  source: string | null;
+}
+
 /** Ponto de uma série histórica; no bruto, avg = min = max = valor e count = 1. */
 export interface HistoryPoint {
   time: Date;
@@ -83,6 +92,25 @@ export class MeasurementsService {
    */
   history(tag: string, q: HistoryQuery): Promise<HistoryPoint[]> {
     return this.repo.query(HISTORY_SQL[q.bucket], [tag, q.from, q.to]);
+  }
+
+  /**
+   * Última amostra de cada tag cadastrada. O LATERAL busca uma tag por vez
+   * pelo índice (tag, time DESC): rápido com qualquer volume, ao contrário de
+   * um DISTINCT ON sobre a hypertable inteira.
+   */
+  latestPerTag(): Promise<LatestSample[]> {
+    return this.repo.query(`
+      SELECT t.tag, m.time, m.value, m.quality, m.source
+      FROM tags t
+      CROSS JOIN LATERAL (
+        SELECT time, value, quality, source
+        FROM measurements
+        WHERE tag = t.tag
+        ORDER BY time DESC
+        LIMIT 1
+      ) m
+      ORDER BY t.tag`);
   }
 
   /** Últimas N amostras de uma tag. */

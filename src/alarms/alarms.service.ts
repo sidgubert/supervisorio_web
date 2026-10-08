@@ -5,12 +5,14 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { Observable, Subject, Subscription } from 'rxjs';
 import { Between, IsNull, Repository } from 'typeorm';
 import { errorMessage } from '../common/error-message';
 import { RateLimitedLogger } from '../common/rate-limited-logger';
+import { Env } from '../config/env.validation';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { QUALITY_BAD, Sample } from '../ingestion/sample';
 import { TagsService } from '../tags/tags.service';
@@ -31,7 +33,7 @@ export interface AlarmEvent {
 type Op =
   | { kind: 'raise'; alarm: Alarm }
   | { kind: 'clear'; id: string; at: Date; value: number | null }
-  | { kind: 'ack'; id: string; at: Date };
+  | { kind: 'ack'; id: string; at: Date; by: string };
 
 /** Teto da fila de gravação (com o banco fora por muito tempo). */
 const MAX_OUTBOX = 10_000;
@@ -76,6 +78,7 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
     private readonly repo: Repository<Alarm>,
     private readonly ingestion: IngestionService,
     private readonly tags: TagsService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   async onModuleInit() {
@@ -128,19 +131,19 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
       .then((rows) => rows.map(view));
   }
 
-  /** Reconhece um alarme aberto (repetir não muda nada). */
-  ack(id: string): AlarmView {
+  /** Reconhece um alarme aberto, registrando quem (repetir não muda nada). */
+  ack(id: string, by: string): AlarmView {
     const alarm = this.open.get(id);
     if (!alarm) throw new NotFoundException(`Alarme ${id} não está aberto`);
-    this.acknowledge(alarm, new Date());
+    this.acknowledge(alarm, new Date(), by);
     return view(alarm);
   }
 
   /** Reconhece todos os alarmes abertos; devolve quantos eram não reconhecidos. */
-  ackAll(): number {
+  ackAll(by: string): number {
     const now = new Date();
     const pending = [...this.open.values()].filter((a) => !a.ackedAt);
-    for (const alarm of pending) this.acknowledge(alarm, now);
+    for (const alarm of pending) this.acknowledge(alarm, now, by);
     return pending.length;
   }
 
@@ -150,7 +153,12 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
       const limits = this.limits.get(s.tag);
       const activeLevels = this.activeLevels(s.tag);
       if (!limits && activeLevels.size === 0) continue;
-      const { raise, clear } = evaluate(limits ?? {}, activeLevels, s.value);
+      const { raise, clear } = evaluate(
+        limits ?? {},
+        activeLevels,
+        s.value,
+        this.config.get('ALARM_HYSTERESIS_PCT', { infer: true }),
+      );
       for (const level of clear) this.clear(this.active.get(key(s.tag, level))!, s.time, s.value);
       for (const { level, limit } of raise) this.raise(s.tag, level, limit, s.time, s.value);
     }
@@ -167,6 +175,7 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
       clearedAt: null,
       clearedValue: null,
       ackedAt: null,
+      ackedBy: null,
     };
     this.open.set(alarm.id, alarm);
     this.active.set(key(tag, level), alarm);
@@ -187,11 +196,13 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
     this.publish('cleared', alarm);
   }
 
-  private acknowledge(alarm: Alarm, at: Date) {
+  private acknowledge(alarm: Alarm, at: Date, by: string) {
     if (alarm.ackedAt) return;
     alarm.ackedAt = at;
+    alarm.ackedBy = by;
     if (alarm.clearedAt) this.open.delete(alarm.id);
-    this.enqueue({ kind: 'ack', id: alarm.id, at });
+    this.logger.log(`Alarme ${alarm.level} em ${alarm.tag} reconhecido por ${by}.`);
+    this.enqueue({ kind: 'ack', id: alarm.id, at, by });
     this.publish('acknowledged', alarm);
   }
 
@@ -285,8 +296,8 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
         );
       case 'ack':
         return this.repo.query(
-          `UPDATE alarms SET acked_at = $2 WHERE id = $1 AND acked_at IS NULL`,
-          [op.id, op.at],
+          `UPDATE alarms SET acked_at = $2, acked_by = $3 WHERE id = $1 AND acked_at IS NULL`,
+          [op.id, op.at, op.by],
         );
     }
   }

@@ -26,6 +26,23 @@ describe('parseHistoryQuery', () => {
     expect(parseHistoryQuery({ from: ago(range) }, now).bucket).toBe(bucket);
   });
 
+  it('minutes: os últimos N minutos até to (atalho do dashboard)', () => {
+    expect(parseHistoryQuery({ minutes: '15' }, now)).toEqual({
+      from: new Date(now.getTime() - 15 * MIN),
+      to: now,
+      bucket: 'raw',
+    });
+  });
+
+  it.each([
+    [{ minutes: '0' }, /minutes deve ser/],
+    [{ minutes: '1.5' }, /minutes deve ser/],
+    [{ minutes: 'dez' }, /minutes deve ser/],
+    [{ minutes: '15', from: ago(HOUR) }, /minutes ou from/],
+  ])('minutes recusa %j', (q, msg) => {
+    expect(() => parseHistoryQuery(q, now)).toThrow(msg);
+  });
+
   it('respeita o bucket pedido', () => {
     expect(parseHistoryQuery({ from: ago(2 * HOUR), bucket: 'raw' }, now).bucket).toBe('raw');
   });

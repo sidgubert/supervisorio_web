@@ -75,6 +75,25 @@ describe('CreateTagDto', () => {
 });
 
 describe('UpdateTagDto', () => {
+  it('sinótico: desenho conhecido (ou null) e posição inteira de 0 a 100', async () => {
+    expect(
+      await errorsFor(UpdateTagDto, { synopticKind: 'tank', synopticX: 0, synopticY: 100 }),
+    ).toEqual([]);
+    expect(await errorsFor(UpdateTagDto, { synopticKind: null, synopticX: null })).toEqual([]);
+    const errors = await errorsFor(UpdateTagDto, {
+      synopticKind: 'valvula',
+      synopticX: 101,
+      synopticY: 12.5,
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^synopticKind must be one of/),
+        expect.stringMatching(/^synopticX must not be greater than 100/),
+        expect.stringMatching(/^synopticY must be an integer/),
+      ]),
+    );
+  });
+
   it('banda morta de alarme não pode ser negativa', async () => {
     expect(await errorsFor(UpdateTagDto, { alarmDeadband: 0.5 })).toEqual([]);
     expect(await errorsFor(UpdateTagDto, { alarmDeadband: -1 })).toEqual([

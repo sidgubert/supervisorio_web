@@ -39,7 +39,27 @@ export interface Env {
   OPCUA_SAMPLING_MS: number;
   /** Pasta dos certificados do cliente OPC UA (relativa ao diretório da API). */
   OPCUA_PKI_DIR: string;
+  /** Autenticação (token HMAC). */
+  AUTH_ENABLED: boolean;
+  AUTH_USER: string;
+  AUTH_PASSWORD: string;
+  AUTH_SECRET: string;
+  /** Banda morta padrão dos alarmes, em % do |limite| (quando a tag não define a sua). */
+  ALARM_HYSTERESIS_PCT: number;
+  /** Retenção do histórico bruto (TimescaleDB). */
+  RETENTION_ENABLED: boolean;
+  RETENTION_DAYS: number;
 }
+
+/** Valor de exemplo do .env.example: recusado com a autenticação ligada. */
+export const EXAMPLE_AUTH_SECRET = 'troque-por-um-segredo-aleatorio-de-32-caracteres-ou-mais';
+
+/**
+ * A retenção precisa ser maior que a janela de reprocessamento do agregado de
+ * 1 hora (7 dias, migration ContinuousAggregates); senão, o refresh recalcularia
+ * os buckets a partir de dados brutos já apagados e perderia o agregado.
+ */
+export const MIN_RETENTION_DAYS = 8;
 
 /** Variáveis de ambiente cruas (sempre strings, vindas do process.env/.env). */
 type Raw = Record<string, string | undefined>;
@@ -71,6 +91,17 @@ export function validateEnv(raw: Raw): Env {
     if (v === 'false') return false;
     errors.push(`${key}="${v}" deve ser "true" ou "false"`);
     return def;
+  };
+
+  const num = (key: string, def: number, min: number, max: number): number => {
+    const v = raw[key];
+    if (v === undefined || v === '') return def;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      errors.push(`${key}="${v}" deve ser um número entre ${min} e ${max}`);
+      return def;
+    }
+    return n;
   };
 
   const url = (key: string, def: string, protocols: string[]): string => {
@@ -116,7 +147,25 @@ export function validateEnv(raw: Raw): Env {
     OPCUA_ENDPOINT: url('OPCUA_ENDPOINT', 'opc.tcp://localhost:4840', ['opc.tcp']),
     OPCUA_SAMPLING_MS: int('OPCUA_SAMPLING_MS', 1000, 50, 3_600_000),
     OPCUA_PKI_DIR: str('OPCUA_PKI_DIR', '.opcua-pki'),
+    AUTH_ENABLED: bool('AUTH_ENABLED', false),
+    AUTH_USER: str('AUTH_USER', 'operador'),
+    AUTH_PASSWORD: str('AUTH_PASSWORD', ''),
+    AUTH_SECRET: str('AUTH_SECRET', ''),
+    ALARM_HYSTERESIS_PCT: num('ALARM_HYSTERESIS_PCT', 2, 0, 50),
+    RETENTION_ENABLED: bool('RETENTION_ENABLED', false),
+    RETENTION_DAYS: int('RETENTION_DAYS', 90, MIN_RETENTION_DAYS, 36_500),
   };
+
+  // Com a autenticação ligada, recusa subir sem senha ou com segredo fraco.
+  if (env.AUTH_ENABLED) {
+    if (env.AUTH_PASSWORD === '') errors.push('AUTH_ENABLED=true exige AUTH_PASSWORD');
+    if (env.AUTH_SECRET.length < 32 || env.AUTH_SECRET === EXAMPLE_AUTH_SECRET) {
+      errors.push(
+        'AUTH_ENABLED=true exige AUTH_SECRET aleatório com 32 caracteres ou mais ' +
+          "(gere com: node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\")",
+      );
+    }
+  }
 
   if (errors.length > 0) {
     throw new Error(`Variáveis de ambiente inválidas:\n  - ${errors.join('\n  - ')}`);

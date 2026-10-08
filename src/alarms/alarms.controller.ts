@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -8,7 +9,19 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { CurrentUser } from '../auth/auth.guard';
+import { ANONYMOUS, AuthUser } from '../auth/auth.service';
 import { AlarmsService } from './alarms.service';
+
+/** Corpo opcional do reconhecimento. */
+export class AckDto {
+  /** Quem reconheceu; só vale com a autenticação desligada (senão é o usuário do token). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  by?: string;
+}
 
 const DAY = 24 * 60 * 60_000;
 const MAX_LIMIT = 1000;
@@ -47,16 +60,26 @@ export class AlarmsController {
   /** Reconhece um alarme (404 se não estiver aberto). */
   @Post(':id/ack')
   @HttpCode(200)
-  ack(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.alarms.ack(id);
+  ack(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AckDto,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.alarms.ack(id, operator(user, body));
   }
 
   /** Reconhece todos os alarmes abertos. */
   @Post('ack-all')
   @HttpCode(200)
-  ackAll() {
-    return { acknowledged: this.alarms.ackAll() };
+  ackAll(@Body() body: AckDto, @CurrentUser() user?: AuthUser) {
+    return { acknowledged: this.alarms.ackAll(operator(user, body)) };
   }
+}
+
+/** Quem reconheceu: o usuário autenticado, ou o `by` informado (sem autenticação). */
+function operator(user: AuthUser | undefined, body: AckDto | undefined): string {
+  if (user && user.username !== ANONYMOUS.username) return user.username;
+  return body?.by?.trim() || ANONYMOUS.username;
 }
 
 function parseDate(name: string, value: string | undefined): Date | undefined {

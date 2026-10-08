@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TALOS</title>
+    <link rel="stylesheet" href="/css/dashboard.css" />
+    <!-- Chart.js servido pela própria API: funciona sem internet. -->
+    <script src="/vendor/chart.js/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <header class="header">
+      <div class="header__brand">
+        <h1>TALOS</h1>
+        <small>supervisório web</small>
+      </div>
+      <nav class="nav">
+        <a href="#dashboard" class="nav__link nav__link--active" data-view="dashboard">Gráficos</a>
+        <a href="#synoptic" class="nav__link" data-view="synoptic">Sinótico</a>
+        <a href="#alarms" class="nav__link" data-view="alarms">Histórico de alarmes</a>
+        <a href="#metrics" class="nav__link" data-view="metrics">Métricas</a>
+        <a href="#config" class="nav__link" data-view="config">Configuração</a>
+      </nav>
+      <div class="header__status">
+        <span id="user-label" class="user-label"></span>
+        <span id="conn-dot" class="conn-dot conn-dot--off"></span>
+        <span id="conn-label">Conectando…</span>
+        <button id="logout-btn" class="btn btn--ghost" hidden>Sair</button>
+      </div>
+    </header>
+
+    <main id="view-dashboard" class="view view--active layout">
+      <section class="charts-panel">
+        <div class="panel-head">
+          <h2>Variáveis de processo</h2>
+          <span id="tag-count" class="badge">0 tags</span>
+        </div>
+        <div id="charts-grid" class="charts-grid">
+          <p id="empty-state" class="empty-state">Aguardando dados…</p>
+        </div>
+      </section>
+      <aside class="alarms-panel">
+        <div class="panel-head">
+          <h2>Alarmes</h2>
+          <span id="alarm-count" class="badge badge--alarm">0 abertos</span>
+        </div>
+        <button id="ack-all" class="btn btn--sm" hidden>Reconhecer todos</button>
+        <div id="alarms-list" class="alarms-list">
+          <p class="empty-state">Nenhum alarme aberto.</p>
+        </div>
+      </aside>
+    </main>
+
+    <main id="view-synoptic" class="view synoptic-view" hidden>
+      <div class="panel-head">
+        <h2>Sinótico do processo</h2>
+        <span class="muted">Posição e desenho de cada tag em Configuração</span>
+      </div>
+      <div class="synoptic-wrap">
+        <svg id="synoptic-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+    </main>
+
+    <main id="view-alarms" class="view alarms-history-view" hidden>
+      <div class="panel-head">
+        <h2>Histórico de alarmes (últimas 24 h)</h2>
+        <button id="refresh-history" class="btn">Atualizar</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>Nível</th>
+              <th>Limite</th>
+              <th>Ativou</th>
+              <th>Normalizou</th>
+              <th>Reconhecido</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="alarm-history-body"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <main id="view-config" class="view config-view" hidden>
+      <div class="panel-head">
+        <h2>Configuração de tags</h2>
+        <span class="muted">Limites de alarme, unidade e posição no sinótico</span>
+      </div>
+      <div id="config-list" class="config-list"></div>
+    </main>
+
+    <main id="view-metrics" class="view metrics-view" hidden>
+      <div class="panel-head">
+        <h2>Métricas e desempenho</h2>
+        <div class="metrics-actions">
+          <select id="export-minutes">
+            <option value="15">Últimos 15 min</option>
+            <option value="60" selected>Últimos 60 min</option>
+            <option value="240">Últimas 4 h</option>
+            <option value="1440">Últimas 24 h</option>
+          </select>
+          <button id="export-csv" class="btn">Exportar CSV</button>
+          <button id="refresh-metrics" class="btn btn--ghost">Atualizar</button>
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <section class="metric-card" id="ingest-card">
+          <h3>Ingestão (tempo real)</h3>
+          <div id="ingest-stats" class="metric-kpis"></div>
+          <div class="chart-wrap chart-wrap--tall"><canvas id="throughput-chart"></canvas></div>
+        </section>
+
+        <section class="metric-card" id="storage-card">
+          <h3>Armazenamento (TimescaleDB)</h3>
+          <div id="storage-stats" class="metric-kpis"></div>
+        </section>
+
+        <section class="metric-card metric-card--wide" id="protocols-card">
+          <h3>Comparação de protocolos</h3>
+          <div id="protocols-table" class="protocols-table"></div>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

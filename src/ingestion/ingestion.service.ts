@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@ne
 import { Observable, Subject } from 'rxjs';
 import { errorMessage } from '../common/error-message';
 import { AcquisitionSource, SourceHealth } from './acquisition-source';
-import { IngestionBuffer } from './ingestion-buffer';
+import { IngestionBuffer, InsertEvent } from './ingestion-buffer';
 import { QUALITY_GOOD, Sample, SampleInput } from './sample';
 
 /**
@@ -56,6 +56,11 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
   readonly samples$: Observable<Sample[]> = this.live.asObservable();
 
   constructor(private readonly buffer: IngestionBuffer) {}
+
+  /** Gravações concluídas no banco (repassadas do buffer, para as métricas). */
+  get inserts$(): Observable<InsertEvent> {
+    return this.buffer.inserts$;
+  }
 
   register(source: AcquisitionSource) {
     if (this.started) {

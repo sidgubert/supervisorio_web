@@ -28,6 +28,16 @@ export default tseslint.config(
     },
   },
   {
+    // Frontend (public/): JavaScript de navegador, sem checagem de tipos.
+    files: ['public/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      sourceType: 'module',
+      globals: { ...globals.browser, Chart: 'readonly' },
+      parserOptions: { projectService: false },
+    },
+  },
+  {
     // Nos testes, acessar membros privados via `as any` é intencional.
     files: ['**/*.spec.ts'],
     rules: {

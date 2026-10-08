@@ -39,10 +39,11 @@ export class MeasurementsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('bucket') bucket?: string,
+    @Query('minutes') minutes?: string,
   ) {
     let q;
     try {
-      q = parseHistoryQuery({ from, to, bucket }, new Date());
+      q = parseHistoryQuery({ from, to, bucket, minutes }, new Date());
     } catch (err) {
       if (err instanceof HistoryQueryError) throw new BadRequestException(err.message);
       throw err;

@@ -4,11 +4,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AlarmsModule } from './alarms/alarms.module';
 import { AppController } from './app.controller';
+import { AuthModule } from './auth/auth.module';
 import { DatabaseExceptionFilter } from './common/database-exception.filter';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { Env, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeorm.config';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { MeasurementsModule } from './measurements/measurements.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ModbusModule } from './sources/modbus/modbus.module';
 import { MqttModule } from './sources/mqtt/mqtt.module';
@@ -43,11 +46,14 @@ import { TagsModule } from './tags/tags.module';
         migrationsRun: config.get('DB_MIGRATIONS_RUN', { infer: true }),
       }),
     }),
+    AuthModule,
     MeasurementsModule,
     TagsModule,
     IngestionModule,
     AlarmsModule,
     RealtimeModule,
+    DashboardModule,
+    MetricsModule,
     SimulatorModule,
     MqttModule,
     ModbusModule,

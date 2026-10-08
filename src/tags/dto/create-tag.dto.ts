@@ -1,10 +1,12 @@
 import {
   IsBoolean,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
@@ -13,6 +15,10 @@ import {
 /** Fontes de aquisição conhecidas (o `name` de cada AcquisitionSource). */
 export const TAG_SOURCES = ['sim', 'mqtt', 'modbus', 'opcua'] as const;
 export type TagSource = (typeof TAG_SOURCES)[number];
+
+/** Desenhos do sinótico (tanque, manômetro, medidor de vazão, nível, sensor genérico). */
+export const SYNOPTIC_KINDS = ['tank', 'pressure', 'flow', 'level', 'sensor'] as const;
+export type SynopticKind = (typeof SYNOPTIC_KINDS)[number];
 
 /**
  * Nome de tag no estilo ISA (ex: TIC-101.PV): letras, dígitos e `. _ : -`,
@@ -75,6 +81,24 @@ export class CreateTagDto {
   @IsNumber(finite)
   @Min(0)
   alarmDeadband?: number | null;
+
+  /** Desenho no sinótico; null = a tag não aparece no sinótico. */
+  @IsOptional()
+  @IsIn(SYNOPTIC_KINDS)
+  synopticKind?: SynopticKind | null;
+
+  /** Posição no sinótico, em % (0–100) da largura e da altura. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  synopticX?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  synopticY?: number | null;
 
   @IsOptional()
   @IsIn(TAG_SOURCES)

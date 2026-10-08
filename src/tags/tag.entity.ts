@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
+import { SynopticKind } from './dto/create-tag.dto';
 
 /** Cadastro de uma variável de processo. Schema em migrations/*-CreateTags.ts. */
 @Entity('tags')
@@ -36,6 +37,17 @@ export class Tag {
   /** Banda morta (histerese) dos alarmes, na unidade da tag. */
   @Column({ name: 'alarm_deadband', type: 'double precision', nullable: true })
   alarmDeadband!: number | null;
+
+  /** Desenho no sinótico (null = fora do sinótico). */
+  @Column({ name: 'synoptic_kind', type: 'text', nullable: true })
+  synopticKind!: SynopticKind | null;
+
+  /** Posição no sinótico, em % da largura e da altura do desenho. */
+  @Column({ name: 'synoptic_x', type: 'smallint', nullable: true })
+  synopticX!: number | null;
+
+  @Column({ name: 'synoptic_y', type: 'smallint', nullable: true })
+  synopticY!: number | null;
 
   /** Fonte de aquisição esperada: sim | mqtt | modbus | opcua */
   @Column({ type: 'text', nullable: true })

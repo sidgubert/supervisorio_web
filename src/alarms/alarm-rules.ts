@@ -47,6 +47,8 @@ export interface AlarmTransitions {
  *
  * - Alto (H/HH) ativa com valor >= limite e normaliza com valor < limite - banda.
  * - Baixo (L/LL) ativa com valor <= limite e normaliza com valor > limite + banda.
+ * - A banda é a da tag (`alarmDeadband`, na unidade da tag) ou, se a tag não
+ *   definir, `defaultBandPct` % do |limite| (ALARM_HYSTERESIS_PCT).
  * - Cada nível é independente: acima de HH, H e HH ficam ativos juntos.
  * - Um nível ativo cujo limite saiu do cadastro normaliza.
  */
@@ -54,15 +56,19 @@ export function evaluate(
   limits: AlarmLimits,
   active: ReadonlySet<AlarmLevel>,
   value: number,
+  defaultBandPct = 0,
 ): AlarmTransitions {
-  const deadband = Math.max(0, limits.alarmDeadband ?? 0);
+  const own = limits.alarmDeadband;
+  const bandFor = (limit: number) =>
+    Math.max(0, own ?? (Math.max(0, defaultBandPct) / 100) * Math.abs(limit));
   const levels = configuredLevels(limits);
   const raise: AlarmTransitions['raise'] = [];
   const clear: AlarmLevel[] = [];
 
   for (const [level, limit] of levels) {
     const violated = isHigh(level) ? value >= limit : value <= limit;
-    const normal = isHigh(level) ? value < limit - deadband : value > limit + deadband;
+    const band = bandFor(limit);
+    const normal = isHigh(level) ? value < limit - band : value > limit + band;
     if (!active.has(level) && violated) raise.push({ level, limit });
     else if (active.has(level) && normal) clear.push(level);
   }

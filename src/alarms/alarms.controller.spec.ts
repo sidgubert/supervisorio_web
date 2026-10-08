@@ -45,10 +45,23 @@ describe('AlarmsController', () => {
     );
   });
 
-  it('ack e ack-all delegam ao serviço', () => {
-    expect(controller.ack('11111111-1111-4111-8111-111111111111')).toEqual({
+  const id = '11111111-1111-4111-8111-111111111111';
+
+  it('ack e ack-all registram o usuário autenticado (ignorando o "by" do corpo)', () => {
+    expect(controller.ack(id, { by: 'outro' }, { username: 'maria' })).toEqual({
       state: 'ACTIVE_ACKED',
     });
-    expect(controller.ackAll()).toEqual({ acknowledged: 3 });
+    expect(service.ack).toHaveBeenCalledWith(id, 'maria');
+    expect(controller.ackAll({}, { username: 'maria' })).toEqual({ acknowledged: 3 });
+    expect(service.ackAll).toHaveBeenCalledWith('maria');
+  });
+
+  it('sem autenticação, usa o "by" do corpo, ou "anônimo"', () => {
+    controller.ack(id, { by: '  João  ' }, { username: 'anônimo' });
+    expect(service.ack).toHaveBeenLastCalledWith(id, 'João');
+    controller.ack(id, {}, { username: 'anônimo' });
+    expect(service.ack).toHaveBeenLastCalledWith(id, 'anônimo');
+    controller.ackAll({ by: '' }, undefined);
+    expect(service.ackAll).toHaveBeenLastCalledWith('anônimo');
   });
 });

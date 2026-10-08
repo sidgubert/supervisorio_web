@@ -33,4 +33,8 @@ export class Alarm {
   /** Quando o operador reconheceu (null = não reconhecido). */
   @Column({ name: 'acked_at', type: 'timestamptz', nullable: true })
   ackedAt!: Date | null;
+
+  /** Quem reconheceu (usuário autenticado, ou o informado sem autenticação). */
+  @Column({ name: 'acked_by', type: 'text', nullable: true })
+  ackedBy!: string | null;
 }

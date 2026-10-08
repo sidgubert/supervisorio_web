@@ -1,6 +1,8 @@
 import { Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Subject } from 'rxjs';
 import { Repository } from 'typeorm';
+import { Env } from '../config/env.validation';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { QUALITY_BAD, Sample } from '../ingestion/sample';
 import { Tag } from '../tags/tag.entity';
@@ -43,6 +45,7 @@ function fakeRepo(initial: Alarm[] = []) {
               clearedAt: null,
               clearedValue: null,
               ackedAt: null,
+              ackedBy: null,
             });
           }
           db.statements.push(`raise ${tag} ${level}`);
@@ -55,7 +58,10 @@ function fakeRepo(initial: Alarm[] = []) {
           db.statements.push(`clear ${row?.tag} ${row?.level}`);
         } else {
           const row = rows.get(p[0] as string);
-          if (row && !row.ackedAt) row.ackedAt = p[1] as Date;
+          if (row && !row.ackedAt) {
+            row.ackedAt = p[1] as Date;
+            row.ackedBy = p[2] as string;
+          }
           db.statements.push(`ack ${row?.tag} ${row?.level}`);
         }
         return [];
@@ -65,7 +71,7 @@ function fakeRepo(initial: Alarm[] = []) {
   return db;
 }
 
-function setup(tags: Partial<Tag>[], initialAlarms: Alarm[] = []) {
+function setup(tags: Partial<Tag>[], initialAlarms: Alarm[] = [], hysteresisPct = 0) {
   let registry = tags.map((t) => ({ enabled: true, ...t }) as Tag);
   const db = fakeRepo(initialAlarms);
   const samples = new Subject<Sample[]>();
@@ -75,6 +81,7 @@ function setup(tags: Partial<Tag>[], initialAlarms: Alarm[] = []) {
     db.repo as unknown as Repository<Alarm>,
     { samples$: samples } as unknown as IngestionService,
     tagsService as unknown as TagsService,
+    { get: () => hysteresisPct } as unknown as ConfigService<Env, true>,
   );
   const events: AlarmEvent[] = [];
   service.events$.subscribe((e) => events.push(e));
@@ -143,15 +150,36 @@ describe('AlarmsService', () => {
     push('TIC-101.PV', 95);
     const [alarm] = service.list();
 
-    expect(service.ack(alarm.id)).toMatchObject({ state: 'ACTIVE_ACKED' });
-    expect(service.ack(alarm.id).ackedAt).toEqual(service.list()[0].ackedAt); // idempotente
+    expect(service.ack(alarm.id, 'op')).toMatchObject({ state: 'ACTIVE_ACKED' });
+    expect(service.ack(alarm.id, 'op').ackedAt).toEqual(service.list()[0].ackedAt); // idempotente
     push('TIC-101.PV', 70);
     expect(service.list()).toEqual([]);
-    expect(() => service.ack(alarm.id)).toThrow(NotFoundException);
+    expect(() => service.ack(alarm.id, 'op')).toThrow(NotFoundException);
 
     await flushed();
     expect(db.statements).toEqual(['raise TIC-101.PV H', 'ack TIC-101.PV H', 'clear TIC-101.PV H']);
     expect(db.rows.get(alarm.id)).toMatchObject({ clearedValue: 70 });
+  });
+
+  it('registra quem reconheceu, em memória e no banco', async () => {
+    const { service, db, push, flushed } = setup([tic]);
+    await service.onModuleInit();
+    push('TIC-101.PV', 95);
+    const [alarm] = service.list();
+    expect(service.ack(alarm.id, 'maria')).toMatchObject({ ackedBy: 'maria' });
+    expect(service.ack(alarm.id, 'outro').ackedBy).toBe('maria'); // o primeiro vale
+    await flushed();
+    expect(db.rows.get(alarm.id)!.ackedBy).toBe('maria');
+  });
+
+  it('sem banda na tag, usa ALARM_HYSTERESIS_PCT % do limite', async () => {
+    const { service, push } = setup([{ tag: 'T', alarmH: 100 }], [], 2);
+    await service.onModuleInit();
+    push('T', 100);
+    push('T', 98.5); // dentro de 2% (98–100): continua ativo
+    expect(service.list()[0].state).toBe('ACTIVE_UNACKED');
+    push('T', 97.9);
+    expect(service.list()[0].state).toBe('CLEARED_UNACKED');
   });
 
   it('ackAll reconhece só os não reconhecidos', async () => {
@@ -159,8 +187,8 @@ describe('AlarmsService', () => {
     await service.onModuleInit();
     push('TIC-101.PV', 101); // H e HH
     push('B', 2);
-    service.ack(service.list().find((a) => a.tag === 'B')!.id);
-    expect(service.ackAll()).toBe(2);
+    service.ack(service.list().find((a) => a.tag === 'B')!.id, 'op');
+    expect(service.ackAll('op')).toBe(2);
     expect(service.list().every((a) => a.state === 'ACTIVE_ACKED')).toBe(true);
   });
 
@@ -195,7 +223,7 @@ describe('AlarmsService', () => {
     await service.onModuleInit();
     db.down = true;
     push('TIC-101.PV', 95);
-    service.ack(service.list()[0].id);
+    service.ack(service.list()[0].id, 'op');
     push('TIC-101.PV', 70);
     await flushed();
     expect(service.list()).toEqual([]); // o estado em memória seguiu normalmente
@@ -220,6 +248,7 @@ describe('AlarmsService', () => {
       clearedAt: null,
       clearedValue: null,
       ackedAt: null,
+      ackedBy: null,
     };
     const { service, db, push, flushed } = setup([tic], [open]);
     await service.onModuleInit();
@@ -254,6 +283,7 @@ describe('AlarmsService', () => {
       clearedAt: null,
       clearedValue: null,
       ackedAt: null,
+      ackedBy: null,
     };
     const { service } = setup([tic], [open]);
     await service.onModuleInit();

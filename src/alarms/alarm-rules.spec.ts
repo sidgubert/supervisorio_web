@@ -52,6 +52,19 @@ describe('evaluate', () => {
     expect(evaluate(withBand, none, 80).raise).toEqual([{ level: 'H', limit: 80 }]);
   });
 
+  it('sem banda na tag, usa a porcentagem padrão do |limite|', () => {
+    // 2% de 80 = 1,6: H só normaliza abaixo de 78,4.
+    expect(evaluate({ alarmH: 80 }, act('H'), 78.5, 2).clear).toEqual([]);
+    expect(evaluate({ alarmH: 80 }, act('H'), 78.3, 2).clear).toEqual(['H']);
+    // Limite negativo: a banda usa o valor absoluto (2% de |-10| = 0,2).
+    expect(evaluate({ alarmL: -10 }, act('L'), -9.85, 2).clear).toEqual([]);
+    expect(evaluate({ alarmL: -10 }, act('L'), -9.7, 2).clear).toEqual(['L']);
+  });
+
+  it('a banda da tag tem prioridade sobre a porcentagem padrão', () => {
+    expect(evaluate({ alarmH: 80, alarmDeadband: 0 }, act('H'), 79.9, 2).clear).toEqual(['H']);
+  });
+
   it('banda negativa é tratada como zero', () => {
     expect(evaluate({ alarmH: 80, alarmDeadband: -5 }, act('H'), 79).clear).toEqual(['H']);
   });

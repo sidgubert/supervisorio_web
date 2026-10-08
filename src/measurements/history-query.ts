@@ -38,12 +38,26 @@ export interface HistoryQuery {
 
 export class HistoryQueryError extends Error {}
 
+/**
+ * `minutes` é um atalho para "os últimos N minutos até `to`" (o dashboard usa
+ * minutes=15); não pode ser combinado com `from`.
+ */
 export function parseHistoryQuery(
-  raw: { from?: string; to?: string; bucket?: string },
+  raw: { from?: string; to?: string; bucket?: string; minutes?: string },
   now: Date,
 ): HistoryQuery {
   const to = raw.to ? parseDate('to', raw.to) : now;
-  const from = raw.from ? parseDate('from', raw.from) : new Date(to.getTime() - DEFAULT_RANGE_MS);
+  let from: Date;
+  if (raw.minutes !== undefined) {
+    if (raw.from) throw new HistoryQueryError('use minutes ou from, não os dois');
+    const m = Number(raw.minutes);
+    if (!Number.isInteger(m) || m < 1) {
+      throw new HistoryQueryError('minutes deve ser um inteiro positivo');
+    }
+    from = new Date(to.getTime() - m * MINUTE);
+  } else {
+    from = raw.from ? parseDate('from', raw.from) : new Date(to.getTime() - DEFAULT_RANGE_MS);
+  }
   const range = to.getTime() - from.getTime();
   if (range <= 0) throw new HistoryQueryError('from deve ser anterior a to');
 
