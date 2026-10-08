@@ -77,48 +77,107 @@ describe('IngestionService', () => {
     expect(() => service.register(fakeSource('b', calls))).toThrow(/após a subida/);
   });
 
-  it('normaliza: aplica qualidade Good por padrão e grava o nome da fonte', async () => {
-    const { service, calls, pushed } = setup();
-    const src = fakeSource('mqtt', calls);
-    service.register(src);
-    await service.onApplicationBootstrap();
-    const t = new Date(0);
-    src.emit!([
-      { time: t, tag: 'A', value: 1 },
-      { time: t, tag: 'B', value: 2, quality: 0 },
-    ]);
-    expect(pushed).toEqual([
-      { time: t, tag: 'A', value: 1, quality: 192, source: 'mqtt' },
-      { time: t, tag: 'B', value: 2, quality: 0, source: 'mqtt' },
-    ]);
-  });
+  describe('ingest', () => {
+    const NOW = new Date('2026-10-08T12:00:00Z');
+    const MIN = 60_000;
+    const at = (deltaMs: number) => new Date(NOW.getTime() + deltaMs);
 
-  it('descarta amostras inválidas', () => {
-    const { service, pushed } = setup();
-    const t = new Date(0);
-    service.ingest('x', [
-      { time: t, tag: 'ok', value: 1 },
-      { time: t, tag: '', value: 1 },
-      { time: t, tag: 'nan', value: NaN },
-      { time: t, tag: 'inf', value: Infinity },
-      { time: new Date('lixo'), tag: 'data', value: 1 },
-      { time: t, tag: 'q', value: 1, quality: 1.5 },
-    ]);
-    expect(pushed.map((s) => s.tag)).toEqual(['ok']);
-  });
+    beforeEach(() => jest.useFakeTimers({ now: NOW }));
+    afterEach(() => jest.useRealTimers());
 
-  it('publica em samples$ só as amostras válidas, e nada se o lote for todo inválido', () => {
-    const { service } = setup();
-    const received: Sample[][] = [];
-    service.samples$.subscribe((b) => received.push(b));
-    const t = new Date(0);
-    service.ingest('x', [
-      { time: t, tag: 'ok', value: 1 },
-      { time: t, tag: 'nan', value: NaN },
-    ]);
-    service.ingest('x', [{ time: t, tag: 'nan', value: NaN }]);
-    expect(received).toHaveLength(1);
-    expect(received[0].map((s) => s.tag)).toEqual(['ok']);
+    it('normaliza: qualidade Good por padrão, nome da fonte e instante de recebimento', async () => {
+      const { service, calls, pushed } = setup();
+      const src = fakeSource('mqtt', calls);
+      service.register(src);
+      await service.onApplicationBootstrap();
+      const t = at(-1000);
+      src.emit!([
+        { time: t, tag: 'A', value: 1 },
+        { time: t, tag: 'B', value: 2, quality: 0 },
+      ]);
+      expect(pushed).toEqual([
+        { time: t, tag: 'A', value: 1, quality: 192, source: 'mqtt', receivedAt: NOW },
+        { time: t, tag: 'B', value: 2, quality: 0, source: 'mqtt', receivedAt: NOW },
+      ]);
+    });
+
+    it('sem time, usa o instante de recebimento', () => {
+      const { service, pushed } = setup();
+      service.ingest('modbus', [{ tag: 'A', value: 1 }]);
+      expect(pushed[0].time).toEqual(NOW);
+    });
+
+    it.each([
+      ['adiantado 6 min', 6 * MIN],
+      ['de 1970 (relógio zerado)', -NOW.getTime()],
+      ['de 2 dias atrás', -2 * 24 * 60 * MIN],
+    ])('time implausível (%s) é trocado pelo de recebimento', (_, delta) => {
+      const { service, pushed } = setup();
+      service.ingest('x', [{ time: at(delta), tag: 'A', value: 1 }]);
+      expect(pushed[0].time).toEqual(NOW);
+    });
+
+    it.each([
+      ['adiantado 4 min', 4 * MIN],
+      ['de 23 h atrás (chegou atrasado)', -23 * 60 * MIN],
+    ])('time plausível (%s) é mantido', (_, delta) => {
+      const { service, pushed } = setup();
+      service.ingest('x', [{ time: at(delta), tag: 'A', value: 1 }]);
+      expect(pushed[0].time).toEqual(at(delta));
+    });
+
+    it('descarta amostras inválidas', () => {
+      const { service, pushed } = setup();
+      const t = at(0);
+      service.ingest('x', [
+        { time: t, tag: 'ok', value: 1 },
+        { time: t, tag: '', value: 1 },
+        { time: t, tag: 'x'.repeat(201), value: 1 },
+        { time: t, tag: 'nul\u0000', value: 1 },
+        { time: t, tag: 'quebra\nde-linha', value: 1 },
+        { time: t, tag: 'nan', value: NaN },
+        { time: t, tag: 'inf', value: Infinity },
+        { time: t, tag: 'texto', value: '1' as unknown as number },
+        { time: new Date('lixo'), tag: 'data', value: 1 },
+        { time: t, tag: 'q-frac', value: 1, quality: 1.5 },
+        { time: t, tag: 'q-neg', value: 1, quality: -1 },
+        { time: t, tag: 'q-256', value: 1, quality: 256 },
+        { time: t, tag: 'q-max', value: 1, quality: 255 },
+      ]);
+      expect(pushed.map((s) => s.tag)).toEqual(['ok', 'q-max']);
+    });
+
+    it('avisa no log no máximo uma vez por minuto por fonte, somando os problemas', () => {
+      const { service } = setup();
+      const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
+      const bad = { tag: '', value: 1 };
+
+      service.ingest('x', [bad]); // primeiro problema: avisa na hora
+      service.ingest('x', [bad, bad]); // dentro do minuto: só acumula
+      service.ingest('y', [bad]); // outra fonte: avisa
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls[0][0]).toMatch(/Fonte "x": 1 amostra/);
+
+      jest.advanceTimersByTime(MIN);
+      service.ingest('x', [{ time: at(-NOW.getTime()), tag: 'A', value: 1 }]);
+      expect(warn).toHaveBeenCalledTimes(3);
+      expect(warn.mock.calls[2][0]).toMatch(
+        /Fonte "x": 2 amostra\(s\) inválida\(s\).*; 1 com horário implausível.*desde o último aviso/,
+      );
+    });
+
+    it('publica em samples$ só as amostras válidas, e nada se o lote for todo inválido', () => {
+      const { service } = setup();
+      const received: Sample[][] = [];
+      service.samples$.subscribe((b) => received.push(b));
+      service.ingest('x', [
+        { tag: 'ok', value: 1 },
+        { tag: 'nan', value: NaN },
+      ]);
+      service.ingest('x', [{ tag: 'nan', value: NaN }]);
+      expect(received).toHaveLength(1);
+      expect(received[0].map((s) => s.tag)).toEqual(['ok']);
+    });
   });
 
   it('completa samples$ no encerramento', async () => {

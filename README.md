@@ -96,9 +96,15 @@ SimulatorSource ─┐
 - Uma fonte implementa `AcquisitionSource` (`name`, `start(emit)`, `stop()`)
   e se registra no `IngestionService` no seu `onModuleInit`. Ela não conhece
   buffer nem banco: só converte o payload do protocolo para `SampleInput`.
-- O `IngestionService` aplica a qualidade padrão (192 = Good), grava o nome da
-  fonte em `source` e descarta amostras inválidas (tag vazia, valor
-  NaN/Infinity, data inválida).
+- O `IngestionService` normaliza cada amostra: qualidade padrão 192 (Good),
+  nome da fonte em `source` e instante de recebimento em `received_at`. Sem
+  `time`, ou com um `time` implausível (mais de 5 min no futuro ou mais de 1
+  dia no passado, típico de relógio de campo zerado), usa o de recebimento.
+- Amostras inválidas são descartadas antes de chegar ao banco: tag vazia, com
+  mais de 200 caracteres ou com caracteres de controle; valor não numérico,
+  NaN ou infinito; qualidade fora de 0–255. Uma única amostra que o banco
+  recusasse faria o lote inteiro falhar a cada nova tentativa. Os avisos no
+  log saem no máximo uma vez por minuto por fonte.
 - Na subida, as fontes são iniciadas; uma que falhe não derruba as outras. No
   encerramento, as fontes param **antes** de o buffer ser esvaziado no banco.
 - As amostras válidas também saem em `samples$` assim que chegam, antes do
@@ -119,7 +125,6 @@ vez de a memória crescer sem limite.
 - `GET /health` — `200 {status:'ok', db:'up'}` ou `503` se o banco não responder.
 - `GET /measurements/:tag/latest?limit=100` — últimas amostras da tag
   (`limit` entre 1 e 5000).
-- `GET /tags` — tags cadastradas.
 - `GET /measurements/:tag/history?from=&to=&bucket=` — série para gráficos.
   `from`/`to` em ISO 8601 (padrão: última hora). `bucket`:
   - `auto` (padrão): escolhe pela duração — até 30 min `raw`, até 36 h `1m`,
@@ -144,7 +149,7 @@ const socket = io('http://localhost:3000/live');
 const ack = await socket.emitWithAck('subscribe', { tags: ['TIC-101.PV'] });
 // ack = { ok: true, tags: [...], last: [último valor conhecido de cada tag] }
 socket.on('samples', (samples) => {
-  /* [{ time, tag, value, quality, source }, ...] — um lote por tag */
+  /* [{ time, tag, value, quality, source, receivedAt }, ...] — um lote por tag */
 });
 socket.emit('unsubscribe', { tags: ['TIC-101.PV'] }); // sem tags = todas
 ```
@@ -152,8 +157,19 @@ socket.emit('unsubscribe', { tags: ['TIC-101.PV'] }); // sem tags = todas
 ## Modelo de dados
 
 Tabela única `measurements` em formato _long_ (uma linha por amostra de cada
-tag): `time, tag, value, quality, source`. Esse formato evita alterar o schema
-ao adicionar novas tags e é o recomendado para hypertables.
+tag): `time, tag, value, quality, source, received_at`. Esse formato evita
+alterar o schema ao adicionar novas tags e é o recomendado para hypertables.
+
+- `time` é o instante da medição segundo a fonte; `received_at`, quando o
+  servidor a recebeu. A diferença entre os dois é a latência de aquisição.
+- `quality` segue o byte de qualidade do OPC DA (192 Good, 64 Uncertain,
+  0 Bad); cada fonte converte a qualidade do seu protocolo para essa escala.
+- `(tag, time)` é único, e a gravação usa `INSERT ... ON CONFLICT DO NOTHING`:
+  regravar um lote (ex: a conexão caiu depois de o banco confirmar a gravação)
+  não duplica amostras.
+- Chunks com mais de 7 dias são comprimidos pelo TimescaleDB (formato colunar,
+  agrupado por tag). A retenção fica desligada, para manter o histórico
+  completo; para ligar: `SELECT add_retention_policy('measurements', INTERVAL '1 year');`
 
 O campo `source` (`sim` por enquanto) já antecipa a Fase 2: distinguir a
 origem dos dados entre `mqtt`, `modbus`, `opcua`.

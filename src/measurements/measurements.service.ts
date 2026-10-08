@@ -1,14 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Sample } from '../ingestion/sample';
 import { Bucket, HistoryQuery } from './history-query';
 import { Measurement } from './measurement.entity';
 
 /**
- * Linhas por INSERT. O PostgreSQL aceita no máximo 65.535 parâmetros por
- * comando; com 5 colunas, 1000 linhas = 5000 parâmetros, bem abaixo do limite.
+ * Inserção em lote com uma única instrução: as colunas vão como arrays e o
+ * unnest() as transforma em linhas. São sempre 6 parâmetros, qualquer que seja
+ * o tamanho do lote (um INSERT ... VALUES tem limite de 65.535 parâmetros).
+ *
+ * ON CONFLICT DO NOTHING + índice único (tag, time): regravar um lote que o
+ * banco já tinha aceitado não duplica amostras. O CTE conta as inseridas.
  */
-const INSERT_CHUNK_SIZE = 1000;
+const INSERT_SQL = `
+  WITH inserted AS (
+    INSERT INTO measurements (time, tag, value, quality, source, received_at)
+    SELECT * FROM unnest(
+      $1::timestamptz[], $2::text[], $3::float8[], $4::int2[], $5::text[], $6::timestamptz[]
+    )
+    ON CONFLICT DO NOTHING
+    RETURNING 1
+  )
+  SELECT count(*)::int AS inserted FROM inserted`;
 
 /** Ponto de uma série histórica; no bruto, avg = min = max = valor e count = 1. */
 export interface HistoryPoint {
@@ -46,21 +60,21 @@ export class MeasurementsService {
   ) {}
 
   /**
-   * Inserção em lote. Em séries temporais é muito mais eficiente
-   * gravar N amostras de uma vez do que uma a uma.
-   *
-   * Lotes grandes são divididos em blocos de INSERT_CHUNK_SIZE dentro de
-   * uma única transação: ou grava tudo, ou nada (evita duplicatas quando
-   * quem chamou tenta de novo após uma falha).
+   * Grava um lote de amostras e devolve quantas foram de fato inseridas
+   * (amostras com (tag, time) já existentes são ignoradas). Uma instrução só:
+   * ou grava o lote inteiro, ou nada.
    */
-  async insertBatch(rows: Partial<Measurement>[]): Promise<number> {
+  async insertBatch(rows: Sample[]): Promise<number> {
     if (rows.length === 0) return 0;
-    await this.repo.manager.transaction(async (em) => {
-      for (let i = 0; i < rows.length; i += INSERT_CHUNK_SIZE) {
-        await em.insert(Measurement, rows.slice(i, i + INSERT_CHUNK_SIZE));
-      }
-    });
-    return rows.length;
+    const result: { inserted: number }[] = await this.repo.query(INSERT_SQL, [
+      rows.map((r) => r.time),
+      rows.map((r) => r.tag),
+      rows.map((r) => r.value),
+      rows.map((r) => r.quality),
+      rows.map((r) => r.source),
+      rows.map((r) => r.receivedAt),
+    ]);
+    return result[0].inserted;
   }
 
   /**

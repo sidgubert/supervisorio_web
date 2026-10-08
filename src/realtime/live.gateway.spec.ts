@@ -22,6 +22,7 @@ describe('LiveGateway (socket.io)', () => {
     value,
     quality: 192,
     source: 'sim',
+    receivedAt: new Date(),
   });
 
   async function connect(): Promise<Socket> {

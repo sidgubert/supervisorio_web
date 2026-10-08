@@ -86,7 +86,13 @@ export class IngestionBuffer {
     const batch = this.buffer.splice(0, this.maxPerFlush);
     try {
       const n = await this.measurements.insertBatch(batch);
-      this.logger.debug(`Gravadas ${n} amostras (${this.buffer.length} pendentes).`);
+      // n < batch.length: amostras que o banco já tinha (ex: lote regravado
+      // após uma falha cuja confirmação se perdeu) foram ignoradas.
+      const dup = batch.length - n;
+      this.logger.debug(
+        `Gravadas ${n} amostras${dup > 0 ? ` (${dup} já existiam)` : ''} ` +
+          `(${this.buffer.length} pendentes).`,
+      );
     } catch (err) {
       this.buffer = batch.concat(this.buffer);
       this.enforceCap();

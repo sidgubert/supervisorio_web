@@ -40,6 +40,7 @@ function samples(n: number, start = 0): Sample[] {
     value: i,
     quality: 192,
     source: 'test',
+    receivedAt: new Date(start + i),
   }));
 }
 

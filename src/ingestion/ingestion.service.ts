@@ -23,6 +23,11 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
   private readonly sources = new Map<string, AcquisitionSource>();
   private started = false;
   private readonly live = new Subject<Sample[]>();
+  /** Problemas por fonte acumulados desde o último aviso no log. */
+  private readonly issues = new Map<
+    string,
+    { rejected: number; retimed: number; lastReport: number }
+  >();
 
   /**
    * Amostras válidas assim que chegam, antes de irem para o banco: o tempo
@@ -69,35 +74,96 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
     this.live.complete();
   }
 
-  /** Normaliza e valida as amostras de uma fonte e as enfileira para gravação. */
+  /**
+   * Normaliza e valida as amostras de uma fonte e as enfileira para gravação.
+   *
+   * - descarta as inválidas (ver isValid): uma única amostra que o banco
+   *   recusasse faria o lote inteiro falhar a cada nova tentativa;
+   * - sem `time`, usa o instante de recebimento; com um `time` implausível
+   *   (relógio de campo zerado ou adiantado), também;
+   * - aplica a qualidade padrão e carimba a origem e o recebimento.
+   */
   ingest(sourceName: string, inputs: SampleInput[]) {
+    const receivedAt = new Date();
+    const now = receivedAt.getTime();
     const valid: Sample[] = [];
+    let retimed = 0;
     for (const s of inputs) {
       if (!isValid(s)) continue;
+      let time = s.time ?? receivedAt;
+      const t = time.getTime();
+      if (t > now + MAX_FUTURE_MS || t < now - MAX_AGE_MS) {
+        time = receivedAt;
+        retimed++;
+      }
       valid.push({
-        time: s.time,
+        time,
         tag: s.tag,
         value: s.value,
         quality: s.quality ?? QUALITY_GOOD,
         source: sourceName,
+        receivedAt,
       });
     }
-    const rejected = inputs.length - valid.length;
-    if (rejected > 0) {
-      this.logger.warn(`Fonte "${sourceName}": ${rejected} amostra(s) inválida(s) descartada(s).`);
-    }
+    this.report(sourceName, inputs.length - valid.length, retimed, now);
     this.buffer.push(valid);
     if (valid.length > 0) this.live.next(valid);
   }
+
+  /**
+   * Avisa no log sobre amostras descartadas ou com horário corrigido, no
+   * máximo uma vez por minuto por fonte (um dispositivo com problema mandando
+   * 10 amostras/s não pode inundar o log).
+   */
+  private report(source: string, rejected: number, retimed: number, now: number) {
+    if (rejected === 0 && retimed === 0) return;
+    let st = this.issues.get(source);
+    if (!st) {
+      st = { rejected: 0, retimed: 0, lastReport: -Infinity };
+      this.issues.set(source, st);
+    }
+    st.rejected += rejected;
+    st.retimed += retimed;
+    if (now - st.lastReport < REPORT_INTERVAL_MS) return;
+
+    const parts: string[] = [];
+    if (st.rejected > 0) parts.push(`${st.rejected} amostra(s) inválida(s) descartada(s)`);
+    if (st.retimed > 0) {
+      parts.push(`${st.retimed} com horário implausível (usado o de recebimento)`);
+    }
+    const since = st.lastReport === -Infinity ? '' : ' desde o último aviso';
+    this.logger.warn(`Fonte "${source}": ${parts.join('; ')}${since}.`);
+    st.rejected = 0;
+    st.retimed = 0;
+    st.lastReport = now;
+  }
 }
+
+/** Maior nome de tag aceito. */
+const MAX_TAG_LENGTH = 200;
+/** Tolerância para relógios de campo adiantados. */
+const MAX_FUTURE_MS = 5 * 60_000;
+/**
+ * Idade máxima aceita para uma amostra (dados que chegam atrasados, ex: de um
+ * dispositivo com store-and-forward). Igual à janela de reprocessamento do
+ * agregado de 1 minuto (migration ContinuousAggregates).
+ */
+const MAX_AGE_MS = 24 * 60 * 60_000;
+const REPORT_INTERVAL_MS = 60_000;
+
+/** Caracteres de controle (inclui o NUL, que o PostgreSQL recusa em TEXT). */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 function isValid(s: SampleInput): boolean {
   return (
     typeof s.tag === 'string' &&
     s.tag.length > 0 &&
+    s.tag.length <= MAX_TAG_LENGTH &&
+    !CONTROL_CHARS.test(s.tag) &&
+    typeof s.value === 'number' &&
     Number.isFinite(s.value) &&
-    s.time instanceof Date &&
-    !Number.isNaN(s.time.getTime()) &&
-    (s.quality === undefined || Number.isInteger(s.quality))
+    (s.time === undefined || (s.time instanceof Date && !Number.isNaN(s.time.getTime()))) &&
+    (s.quality === undefined || (Number.isInteger(s.quality) && s.quality >= 0 && s.quality <= 255))
   );
 }

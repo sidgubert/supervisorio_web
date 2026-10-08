@@ -42,7 +42,7 @@ describe('SimulatorSource', () => {
     expect(batches).toHaveLength(3);
     for (const batch of batches) {
       expect(batch.map((s) => s.tag)).toEqual(DEFAULT_SIGNALS.map((s) => s.tag));
-      expect(new Set(batch.map((s) => s.time.getTime())).size).toBe(1);
+      expect(new Set(batch.map((s) => s.time?.getTime())).size).toBe(1);
     }
   });
 

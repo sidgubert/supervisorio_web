@@ -1,6 +1,7 @@
 services:
   timescaledb:
-    image: timescale/timescaledb:latest-pg16
+    # Versão fixa: builds reproduzíveis (a mesma usada nos testes).
+    image: timescale/timescaledb:2.27.1-pg16
     container_name: scada-timescaledb
     restart: unless-stopped
     environment:
@@ -22,13 +23,14 @@ services:
   # Opcional: cliente web para inspecionar o banco durante o desenvolvimento.
   # Suba com:  docker compose --profile tools up -d
   adminer:
-    image: adminer:latest
+    image: adminer:6.1.1
     container_name: scada-adminer
     restart: unless-stopped
     ports:
       - '8080:8080'
     depends_on:
-      - timescaledb
+      timescaledb:
+        condition: service_healthy
     profiles: ['tools']
 
 volumes:
