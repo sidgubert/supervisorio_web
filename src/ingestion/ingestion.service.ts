@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { errorMessage } from '../common/error-message';
 import { AcquisitionSource } from './acquisition-source';
 import { IngestionBuffer } from './ingestion-buffer';
 import { QUALITY_GOOD, Sample, SampleInput } from './sample';
@@ -40,7 +41,7 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
         this.logger.log(`Fonte "${source.name}" iniciada.`);
       } catch (err) {
         // Uma fonte com problema (ex: broker MQTT fora) não derruba as outras.
-        this.logger.error(`Fonte "${source.name}" falhou ao iniciar: ${(err as Error).message}`);
+        this.logger.error(`Fonte "${source.name}" falhou ao iniciar: ${errorMessage(err)}`);
       }
     }
     this.started = true;
@@ -52,7 +53,7 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
       try {
         await source.stop();
       } catch (err) {
-        this.logger.error(`Fonte "${source.name}" falhou ao parar: ${(err as Error).message}`);
+        this.logger.error(`Fonte "${source.name}" falhou ao parar: ${errorMessage(err)}`);
       }
     }
     await this.buffer.stop();

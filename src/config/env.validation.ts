@@ -15,6 +15,7 @@ export interface Env {
   DB_USER: string;
   DB_PASSWORD: string;
   DB_NAME: string;
+  DB_MIGRATIONS_RUN: boolean;
   PORT: number;
   SIM_ENABLED: boolean;
   SIM_INTERVAL_MS: number;
@@ -60,6 +61,7 @@ export function validateEnv(raw: Raw): Env {
     DB_USER: str('DB_USER', 'scada'),
     DB_PASSWORD: str('DB_PASSWORD', 'scada'),
     DB_NAME: str('DB_NAME', 'scada'),
+    DB_MIGRATIONS_RUN: bool('DB_MIGRATIONS_RUN', true),
     PORT: int('PORT', 3000, 1, 65535),
     SIM_ENABLED: bool('SIM_ENABLED', true),
     SIM_INTERVAL_MS: int('SIM_INTERVAL_MS', 1000, 10, 3_600_000),

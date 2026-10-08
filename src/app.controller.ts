@@ -14,6 +14,8 @@ export class AppController {
       endpoints: {
         health: 'GET /health',
         latest: 'GET /measurements/:tag/latest?limit=100',
+        tags: 'GET /tags',
+        tag: 'GET /tags/:tag',
       },
     };
   }

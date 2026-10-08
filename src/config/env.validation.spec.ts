@@ -8,6 +8,7 @@ describe('validateEnv', () => {
       DB_USER: 'scada',
       DB_PASSWORD: 'scada',
       DB_NAME: 'scada',
+      DB_MIGRATIONS_RUN: true,
       PORT: 3000,
       SIM_ENABLED: true,
       SIM_INTERVAL_MS: 1000,

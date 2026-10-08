@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { errorMessage } from '../common/error-message';
 import { Env } from '../config/env.validation';
 import { MeasurementsService } from '../measurements/measurements.service';
 import { Sample } from './sample';
@@ -90,7 +91,7 @@ export class IngestionBuffer {
       this.buffer = batch.concat(this.buffer);
       this.enforceCap();
       this.logger.error(
-        `Falha ao gravar lote (${this.buffer.length} pendentes): ${(err as Error).message}`,
+        `Falha ao gravar lote (${this.buffer.length} pendentes): ${errorMessage(err)}`,
       );
     }
   }

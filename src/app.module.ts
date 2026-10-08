@@ -3,10 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { Env, validateEnv } from './config/env.validation';
+import { buildDataSourceOptions } from './database/typeorm.config';
 import { IngestionModule } from './ingestion/ingestion.module';
-import { Measurement } from './measurements/measurement.entity';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { SimulatorModule } from './simulator/simulator.module';
+import { TagsModule } from './tags/tags.module';
 
 @Module({
   controllers: [AppController],
@@ -15,19 +16,20 @@ import { SimulatorModule } from './simulator/simulator.module';
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => ({
-        type: 'postgres',
-        host: config.get('DB_HOST', { infer: true }),
-        port: config.get('DB_PORT', { infer: true }),
-        username: config.get('DB_USER', { infer: true }),
-        password: config.get('DB_PASSWORD', { infer: true }),
-        database: config.get('DB_NAME', { infer: true }),
-        entities: [Measurement],
-        // false: o schema (hypertable) é criado pelo db/init.sql,
-        // não pelo TypeORM, que não sabe criar hypertables.
-        synchronize: false,
+        ...buildDataSourceOptions({
+          DB_HOST: config.get('DB_HOST', { infer: true }),
+          DB_PORT: config.get('DB_PORT', { infer: true }),
+          DB_USER: config.get('DB_USER', { infer: true }),
+          DB_PASSWORD: config.get('DB_PASSWORD', { infer: true }),
+          DB_NAME: config.get('DB_NAME', { infer: true }),
+        }),
+        // Aplica as migrations pendentes na subida, antes de a API e o
+        // simulador começarem a usar o banco.
+        migrationsRun: config.get('DB_MIGRATIONS_RUN', { infer: true }),
       }),
     }),
     MeasurementsModule,
+    TagsModule,
     IngestionModule,
     SimulatorModule,
   ],
