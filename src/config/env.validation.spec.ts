@@ -14,6 +14,8 @@ describe('validateEnv', () => {
       SIM_INTERVAL_MS: 1000,
       INGEST_FLUSH_MS: 2000,
       INGEST_BUFFER_MAX: 100_000,
+      LIVE_FLUSH_MS: 200,
+      LIVE_MAX_SAMPLES_PER_TAG: 100,
       MQTT_ENABLED: false,
       MQTT_URL: 'mqtt://localhost:1883',
       MQTT_USERNAME: '',

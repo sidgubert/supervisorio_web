@@ -1,4 +1,5 @@
 import { INestApplication, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
@@ -7,9 +8,18 @@ import { Sample } from '../ingestion/sample';
 import { AlarmEvent, AlarmsService } from '../alarms/alarms.service';
 import { LiveGateway, SubscribeAck } from './live.gateway';
 
+/** ConfigService falso com a janela de envio do gateway. */
+const liveConfig = (flushMs: number, maxPerTag = 100) => ({
+  provide: ConfigService,
+  useValue: {
+    get: (k: string) => ({ LIVE_FLUSH_MS: flushMs, LIVE_MAX_SAMPLES_PER_TAG: maxPerTag })[k],
+  },
+});
+
 /**
  * Sobe o gateway com socket.io de verdade (servidor numa porta livre e
  * clientes socket.io-client), trocando só a ingestão por um Subject.
+ * Aqui o envio é imediato (LIVE_FLUSH_MS = 0); o agrupamento é testado abaixo.
  */
 describe('LiveGateway (socket.io)', () => {
   let app: INestApplication;
@@ -57,6 +67,7 @@ describe('LiveGateway (socket.io)', () => {
         LiveGateway,
         { provide: IngestionService, useValue: { samples$: feed } },
         { provide: AlarmsService, useValue: { events$: alarmFeed } },
+        liveConfig(0),
       ],
     }).compile();
     app = moduleRef.createNestApplication({ logger: false });
@@ -138,4 +149,80 @@ describe('LiveGateway (socket.io)', () => {
       await expect(send(c, 'subscribe', body)).resolves.toMatchObject({ ok: false });
     },
   );
+});
+
+describe('LiveGateway: envio agrupado (LIVE_FLUSH_MS)', () => {
+  let app: INestApplication;
+  let url: string;
+  const feed = new Subject<Sample[]>();
+  const socks: Socket[] = [];
+  const sample = (tag: string, value: number): Sample => ({
+    time: new Date(),
+    tag,
+    value,
+    quality: 192,
+    source: 'sim',
+    receivedAt: new Date(),
+  });
+
+  beforeAll(async () => {
+    Logger.overrideLogger(false);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        LiveGateway,
+        { provide: IngestionService, useValue: { samples$: feed } },
+        { provide: AlarmsService, useValue: { events$: new Subject<AlarmEvent>() } },
+        liveConfig(100, 3),
+      ],
+    }).compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.listen(0);
+    url = (await app.getUrl()).replace('[::1]', 'localhost');
+  });
+
+  afterAll(async () => {
+    while (socks.length) socks.pop()!.disconnect();
+    await app.close();
+  });
+
+  async function subscribedClient() {
+    const socket = io(`${url}/live`, { transports: ['websocket'], forceNew: true });
+    socks.push(socket);
+    await new Promise<void>((resolve) => socket.once('connect', () => resolve()));
+    await socket.timeout(2000).emitWithAck('subscribe', {});
+    const got: Sample[][] = [];
+    socket.on('samples', (s: Sample[]) => got.push(s));
+    return { socket, got };
+  }
+
+  it('lotes que chegam dentro da janela saem num único evento por tag', async () => {
+    const { got } = await subscribedClient();
+    feed.next([sample('A', 1)]);
+    feed.next([sample('A', 2), sample('B', 10)]);
+    feed.next([sample('A', 3)]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(got).toEqual([]); // ainda dentro da janela
+    await new Promise((r) => setTimeout(r, 200));
+    const byTag = Object.fromEntries(got.map((batch) => [batch[0].tag, batch.map((s) => s.value)]));
+    expect(got).toHaveLength(2);
+    expect(byTag).toEqual({ A: [1, 2, 3], B: [10] });
+  });
+
+  it('acima do teto por tag, mantém só as amostras mais recentes', async () => {
+    const { got } = await subscribedClient();
+    feed.next([1, 2, 3, 4, 5].map((v) => sample('C', v)));
+    await new Promise((r) => setTimeout(r, 250));
+    expect(got.map((batch) => batch.map((s) => s.value))).toEqual([[3, 4, 5]]);
+  });
+
+  it('o ack da assinatura já traz o último valor, sem esperar a janela', async () => {
+    feed.next([sample('D', 7)]);
+    const socket = io(`${url}/live`, { transports: ['websocket'], forceNew: true });
+    socks.push(socket);
+    await new Promise<void>((resolve) => socket.once('connect', () => resolve()));
+    const ack = (await socket
+      .timeout(2000)
+      .emitWithAck('subscribe', { tags: ['D'] })) as SubscribeAck;
+    expect(ack.ok && ack.last.map((s) => s.value)).toEqual([7]);
+  });
 });

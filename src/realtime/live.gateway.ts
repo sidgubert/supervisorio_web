@@ -1,4 +1,5 @@
 import { Logger, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ConnectedSocket,
   MessageBody,
@@ -10,6 +11,7 @@ import {
 import { Subscription } from 'rxjs';
 import { Namespace, Socket } from 'socket.io';
 import { errorMessage } from '../common/error-message';
+import { Env } from '../config/env.validation';
 import { AlarmsService } from '../alarms/alarms.service';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { Sample } from '../ingestion/sample';
@@ -30,12 +32,17 @@ export type SubscribeAck =
  *   cliente -> 'subscribe'   { tags?: string[] }  (sem tags = todas)
  *              ack: { ok, tags, last }  last = último valor conhecido de cada tag
  *   cliente -> 'unsubscribe' { tags?: string[] }  (sem tags = todas)
- *   servidor -> 'samples'    Sample[]             (um lote por tag)
+ *   servidor -> 'samples'    Sample[]             (um lote por tag a cada LIVE_FLUSH_MS)
  *   servidor -> 'alarm'      { type, alarm }      (a todos os clientes)
  *              type: raised | cleared | acknowledged
  *
  * As amostras vêm do IngestionService.samples$, antes de irem para o banco;
  * os alarmes, do AlarmsService.events$.
+ *
+ * Envio agrupado: as amostras de cada tag se acumulam e saem num único evento
+ * a cada LIVE_FLUSH_MS (0 = na hora), com no máximo LIVE_MAX_SAMPLES_PER_TAG
+ * (as mais recentes). Uma fonte rápida (Modbus a 50 ms, MQTT com muitas
+ * mensagens) não inunda o navegador; o histórico completo está no banco.
  */
 @WebSocketGateway({ namespace: '/live', cors: { origin: '*' } })
 export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
@@ -43,6 +50,11 @@ export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
   /** Último valor de cada tag, para o cliente não começar com o gráfico vazio. */
   private readonly last = new Map<string, Sample>();
   private subscriptions: Subscription[] = [];
+  /** Amostras aguardando o próximo envio, por tag. */
+  private readonly pending = new Map<string, Sample[]>();
+  private flushTimer?: NodeJS.Timeout;
+  private readonly flushMs: number;
+  private readonly maxPerTag: number;
 
   @WebSocketServer()
   server!: Namespace;
@@ -50,7 +62,11 @@ export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
   constructor(
     private readonly ingestion: IngestionService,
     private readonly alarms: AlarmsService,
-  ) {}
+    config: ConfigService<Env, true>,
+  ) {
+    this.flushMs = config.get('LIVE_FLUSH_MS', { infer: true });
+    this.maxPerTag = config.get('LIVE_MAX_SAMPLES_PER_TAG', { infer: true });
+  }
 
   afterInit() {
     this.subscriptions = [
@@ -62,6 +78,8 @@ export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
 
   onModuleDestroy() {
     for (const s of this.subscriptions) s.unsubscribe();
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
   }
 
   @SubscribeMessage('subscribe')
@@ -93,17 +111,28 @@ export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  /** Envia cada tag do lote para quem assina a tag ou todas. */
+  /** Acumula o lote por tag e agenda o envio. */
   broadcast(batch: Sample[]) {
-    try {
-      const byTag = new Map<string, Sample[]>();
-      for (const s of batch) {
-        const list = byTag.get(s.tag);
-        if (list) list.push(s);
-        else byTag.set(s.tag, [s]);
+    for (const s of batch) {
+      this.last.set(s.tag, s);
+      const list = this.pending.get(s.tag);
+      if (list) {
+        list.push(s);
+        // Mantém só as mais recentes.
+        if (list.length > this.maxPerTag) list.splice(0, list.length - this.maxPerTag);
+      } else {
+        this.pending.set(s.tag, [s]);
       }
-      for (const [tag, samples] of byTag) {
-        this.last.set(tag, samples[samples.length - 1]);
+    }
+    if (this.flushMs === 0) this.flush();
+    else this.flushTimer ??= setTimeout(() => this.flush(), this.flushMs);
+  }
+
+  /** Envia o acumulado de cada tag para quem assina a tag ou todas. */
+  private flush() {
+    this.flushTimer = undefined;
+    try {
+      for (const [tag, samples] of this.pending) {
         // Um único emit para as duas salas: o socket.io não duplica para quem
         // está em ambas.
         this.server.to([room(tag), ALL]).emit('samples', samples);
@@ -111,6 +140,8 @@ export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
     } catch (err) {
       // Um erro aqui não pode interromper a assinatura de samples$.
       this.logger.error(`Falha ao transmitir amostras: ${errorMessage(err)}`);
+    } finally {
+      this.pending.clear();
     }
   }
 }

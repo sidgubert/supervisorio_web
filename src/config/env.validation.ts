@@ -21,6 +21,9 @@ export interface Env {
   SIM_INTERVAL_MS: number;
   INGEST_FLUSH_MS: number;
   INGEST_BUFFER_MAX: number;
+  /** Janela de agrupamento do envio pelo WebSocket (0 = imediato). */
+  LIVE_FLUSH_MS: number;
+  LIVE_MAX_SAMPLES_PER_TAG: number;
   MQTT_ENABLED: boolean;
   MQTT_URL: string;
   /** Vazio = sem autenticação. */
@@ -98,6 +101,8 @@ export function validateEnv(raw: Raw): Env {
     SIM_INTERVAL_MS: int('SIM_INTERVAL_MS', 1000, 10, 3_600_000),
     INGEST_FLUSH_MS: int('INGEST_FLUSH_MS', 2000, 10, 3_600_000),
     INGEST_BUFFER_MAX: int('INGEST_BUFFER_MAX', 100_000, 100, 10_000_000),
+    LIVE_FLUSH_MS: int('LIVE_FLUSH_MS', 200, 0, 10_000),
+    LIVE_MAX_SAMPLES_PER_TAG: int('LIVE_MAX_SAMPLES_PER_TAG', 100, 1, 100_000),
     MQTT_ENABLED: bool('MQTT_ENABLED', false),
     MQTT_URL: url('MQTT_URL', 'mqtt://localhost:1883', ['mqtt', 'mqtts', 'tcp', 'ws', 'wss']),
     MQTT_USERNAME: str('MQTT_USERNAME', ''),

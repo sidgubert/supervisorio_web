@@ -352,6 +352,10 @@ const ack = await socket.emitWithAck('subscribe', { tags: ['TIC-101.PV'] });
 socket.on('samples', (samples) => {
   /* [{ time, tag, value, quality, source, receivedAt }, ...] — um lote por tag */
 });
+// As amostras de cada tag saem agrupadas: um evento por tag a cada
+// LIVE_FLUSH_MS (padrão 200 ms; 0 = imediato), com no máximo
+// LIVE_MAX_SAMPLES_PER_TAG amostras (as mais recentes). O histórico completo
+// está no banco; o tempo real é para exibição.
 socket.emit('unsubscribe', { tags: ['TIC-101.PV'] }); // sem tags = todas
 
 // Alarmes chegam a todos os clientes, sem precisar assinar:
@@ -450,8 +454,6 @@ migration inicial é idempotente e apenas se registra.
 
 ## Próximos passos
 
-- Com taxas de aquisição altas, agrupar/limitar o envio do `LiveGateway`
-  (hoje cada lote recebido vira um evento por tag).
 - node-opcua fixado em 2.183.x, a última linha com o pacote principal em
   CommonJS; atualizar para a 2.184+ (só ESM) junto com uma migração do
   projeto para ESM.
