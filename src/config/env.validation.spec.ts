@@ -18,6 +18,11 @@ describe('validateEnv', () => {
       MQTT_URL: 'mqtt://localhost:1883',
       MQTT_USERNAME: '',
       MQTT_PASSWORD: '',
+      MODBUS_ENABLED: false,
+      MODBUS_HOST: 'localhost',
+      MODBUS_PORT: 502,
+      MODBUS_POLL_MS: 1000,
+      MODBUS_TIMEOUT_MS: 2000,
     });
   });
 

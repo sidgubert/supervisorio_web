@@ -26,6 +26,11 @@ export interface Env {
   /** Vazio = sem autenticação. */
   MQTT_USERNAME: string;
   MQTT_PASSWORD: string;
+  MODBUS_ENABLED: boolean;
+  MODBUS_HOST: string;
+  MODBUS_PORT: number;
+  MODBUS_POLL_MS: number;
+  MODBUS_TIMEOUT_MS: number;
 }
 
 /** Variáveis de ambiente cruas (sempre strings, vindas do process.env/.env). */
@@ -92,6 +97,11 @@ export function validateEnv(raw: Raw): Env {
     MQTT_URL: url('MQTT_URL', 'mqtt://localhost:1883', ['mqtt', 'mqtts', 'tcp', 'ws', 'wss']),
     MQTT_USERNAME: str('MQTT_USERNAME', ''),
     MQTT_PASSWORD: str('MQTT_PASSWORD', ''),
+    MODBUS_ENABLED: bool('MODBUS_ENABLED', false),
+    MODBUS_HOST: str('MODBUS_HOST', 'localhost'),
+    MODBUS_PORT: int('MODBUS_PORT', 502, 1, 65535),
+    MODBUS_POLL_MS: int('MODBUS_POLL_MS', 1000, 50, 3_600_000),
+    MODBUS_TIMEOUT_MS: int('MODBUS_TIMEOUT_MS', 2000, 100, 60_000),
   };
 
   if (errors.length > 0) {

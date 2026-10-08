@@ -5,8 +5,8 @@ Sistema supervisório web educacional 4.0.
 - **Fase 1 (concluída):** banco de séries temporais, backend NestJS e o
   "Teste de Carga Simulado" (gerador de senoides que persiste continuamente
   no banco), com histórico agregado e tempo real via WebSocket.
-- **Fase 2 (em andamento):** aquisição real via MQTT (pronta), Modbus TCP e
-  OPC UA, todas convergindo para o mesmo formato de amostra.
+- **Fase 2 (em andamento):** aquisição real via MQTT e Modbus TCP (prontas)
+  e OPC UA, todas convergindo para o mesmo formato de amostra.
 
 ## Stack
 
@@ -16,6 +16,7 @@ Sistema supervisório web educacional 4.0.
 - **TypeScript** — tipagem estática das variáveis de processo.
 - **socket.io** — tempo real para o dashboard.
 - **MQTT.js** + **Mosquitto** — aquisição MQTT.
+- **modbus-serial** — aquisição Modbus TCP (cliente e simulador de CLP).
 
 ## Pré-requisitos
 
@@ -64,6 +65,7 @@ npm run format      # formata com Prettier
 ```
 docker-compose.yml      TimescaleDB, Mosquitto (+ Adminer opcional)
 docker/mosquitto/       configuração do broker MQTT de desenvolvimento
+tools/modbus-sim.ts     simulador de CLP Modbus TCP (npm run sim:modbus)
 src/
   main.ts               bootstrap da API (CORS, porta, shutdown hooks)
   app.module.ts         config + conexão TypeORM
@@ -90,6 +92,9 @@ src/
     mqtt/
       mqtt-payload.ts     formatos de payload aceitos + validação de tópico
       mqtt.source.ts      fonte "mqtt": assina o tópico de cada tag
+    modbus/
+      modbus-address.ts   endereços, agrupamento de leituras, decodificação
+      modbus.source.ts    fonte "modbus": lê as tags em ciclos (polling)
   realtime/
     live.gateway.ts     WebSocket (socket.io /live) para o dashboard
 ```
@@ -128,10 +133,11 @@ Cada fonte adquire as tags do cadastro com `source` igual ao seu nome e
 Criar, alterar ou remover uma tag pela API reconfigura a fonte na hora, sem
 reiniciar. O estado de cada fonte aparece em `GET /sources`.
 
-| Fonte  | Liga com            | `address` da tag              |
-| ------ | ------------------- | ----------------------------- |
-| `sim`  | `SIM_ENABLED=true`  | — (gera as 4 tags de exemplo) |
-| `mqtt` | `MQTT_ENABLED=true` | tópico exato, sem `+` ou `#`  |
+| Fonte    | Liga com              | `address` da tag                                  |
+| -------- | --------------------- | ------------------------------------------------- |
+| `sim`    | `SIM_ENABLED=true`    | — (gera as 4 tags de exemplo)                     |
+| `mqtt`   | `MQTT_ENABLED=true`   | tópico exato, sem `+` ou `#`                      |
+| `modbus` | `MODBUS_ENABLED=true` | `hr:0`, `ir:10?type=int16&scale=0.1`, `coil:3`... |
 
 ### MQTT
 
@@ -167,6 +173,51 @@ docker exec scada-mosquitto mosquitto_pub -t lab/tt900 -q 1 \
 
 curl localhost:3000/measurements/TT-900.PV/latest
 ```
+
+### Modbus TCP
+
+Lê, a cada `MODBUS_POLL_MS`, as tags Modbus no equipamento
+`MODBUS_HOST:MODBUS_PORT` (timeout de `MODBUS_TIMEOUT_MS` por request).
+
+Endereço da tag: `<área>:<offset>[?unit=1&type=uint16&scale=1&swap=false]`
+
+| Área   | Função            | Tipos                                                    |
+| ------ | ----------------- | -------------------------------------------------------- |
+| `hr`   | holding registers | `uint16` (padrão), `int16`, `uint32`, `int32`, `float32` |
+| `ir`   | input registers   | idem                                                     |
+| `coil` | coils             | bit (1/0)                                                |
+| `di`   | discrete inputs   | bit (1/0)                                                |
+
+- `offset` começa em 0: `hr:0` é o registrador 40001 da notação clássica.
+- Tipos de 32 bits ocupam 2 registradores, com a palavra alta primeiro;
+  `swap=true` inverte a ordem (CDAB), comum em alguns CLPs.
+- `scale` multiplica o valor bruto (ex: `scale=0.1` para décimos). O
+  resultado é arredondado às casas da escala, e `float32` a 7 dígitos
+  significativos, sem ruído de ponto flutuante.
+- `unit` é o unit ID do escravo (padrão 1), útil atrás de gateways.
+
+Comportamento:
+
+- Registradores contíguos do mesmo escravo e área viram um só request (até
+  125 registradores ou 2000 bits). Endereços com lacunas ficam em requests
+  separados, porque ler um "buraco" pode gerar a exceção _illegal data
+  address_ e derrubar o bloco inteiro.
+- Se o equipamento responde com exceção, só o bloco afetado falha. Se a
+  conexão cai ou dá timeout, a fonte reconecta no ciclo seguinte.
+- Quando uma tag deixa de ser lida, a fonte grava **uma** amostra com
+  qualidade Bad (0) e o último valor bom, marcando no histórico onde o dado
+  deixou de valer. As leituras seguintes voltam ao normal sozinhas.
+- O Modbus não informa horário: vale o instante de recebimento.
+
+Para testar com o simulador (em outro terminal):
+
+```bash
+npm run sim:modbus     # CLP simulado em 127.0.0.1:5020 (mapa em tools/modbus-sim.ts)
+```
+
+Com `MODBUS_ENABLED=true` e `MODBUS_PORT=5020` no `.env`, cadastre as tags
+(ex: `{"tag":"PT-101.PV","unit":"bar","source":"modbus","address":"hr:0?scale=0.01"}`
+em `POST /tags`) e acompanhe em `GET /sources` e `GET /measurements/PT-101.PV/latest`.
 
 ## Configuração
 
@@ -291,9 +342,9 @@ migration inicial é idempotente e apenas se registra.
 
 ## Próximos passos (Fase 2)
 
-- Fontes Modbus TCP e OPC UA: cada uma é um novo `AcquisitionSource` (ver
-  `mqtt.source.ts` como modelo), lendo as tags do cadastro e convertendo o
-  valor do protocolo para `SampleInput`.
+- Fonte OPC UA: um novo `AcquisitionSource` (ver `mqtt.source.ts` e
+  `modbus.source.ts` como modelo), lendo as tags do cadastro e convertendo o
+  valor e o StatusCode do protocolo para `SampleInput`.
 - Alarmes: comparar as amostras de `samples$` com os limites da tabela `tags`.
 - Com taxas de aquisição altas, agrupar/limitar o envio do `LiveGateway`
   (hoje cada lote recebido vira um evento por tag).

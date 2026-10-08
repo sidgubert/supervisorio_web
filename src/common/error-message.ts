@@ -1,15 +1,27 @@
 /**
  * Texto legível de um erro para log.
  *
- * Alguns erros chegam com `message` vazia: ao recusar a conexão, o driver `pg`
- * lança um AggregateError sem mensagem, só com `code` (ex: ECONNREFUSED).
+ * Bibliotecas nem sempre lançam `Error` com mensagem:
+ * - o driver `pg`, ao recusar a conexão, lança um AggregateError com
+ *   `message` vazia e o motivo só em `code` (ECONNREFUSED);
+ * - o `modbus-serial` rejeita com objetos comuns `{ name, message, errno }`.
+ *
+ * Usa a mensagem quando houver e acrescenta o código (code/errno) se ele
+ * ainda não estiver nela: "Port Not Open (ECONNREFUSED)".
  */
 export function errorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    if (err.message) return err.message;
-    const code = (err as { code?: unknown }).code;
-    if (typeof code === 'string') return code;
-    return err.name;
+  if (typeof err !== 'object' || err === null) return String(err);
+
+  const { message, code, errno, name } = err as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
+  const reason = text(code) ?? text(errno);
+  const base = text(message) ?? reason ?? text(name);
+  if (!base) {
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return 'erro sem descrição'; // objeto circular
+    }
   }
-  return String(err);
+  return reason && !base.includes(reason) ? `${base} (${reason})` : base;
 }
