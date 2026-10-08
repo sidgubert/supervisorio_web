@@ -53,10 +53,10 @@ async function main() {
     allowAnonymous: true,
     securityModes: [MessageSecurityMode.None],
     securityPolicies: [SecurityPolicy.None],
-    buildInfo: { productName: 'SCADA-EDU simulador OPC UA' },
+    buildInfo: { productName: 'TALOS simulador OPC UA' },
     // Certificado do servidor numa pasta temporária, reaproveitada entre execuções.
     serverCertificateManager: new OPCUACertificateManager({
-      rootFolder: join(tmpdir(), 'scada-edu-opcua-sim-pki'),
+      rootFolder: join(tmpdir(), 'talos-opcua-sim-pki'),
       automaticallyAcceptUnknownCertificate: true,
     }),
   });

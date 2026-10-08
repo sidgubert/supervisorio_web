@@ -2,7 +2,7 @@ services:
   timescaledb:
     # Versão fixa: builds reproduzíveis (a mesma usada nos testes).
     image: timescale/timescaledb:2.27.1-pg16
-    container_name: scada-timescaledb
+    container_name: talos-timescaledb
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-scada}
@@ -24,7 +24,7 @@ services:
   # apenas para desenvolvimento/laboratório (ver docker/mosquitto/mosquitto.conf).
   mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine
-    container_name: scada-mosquitto
+    container_name: talos-mosquitto
     restart: unless-stopped
     ports:
       - '1883:1883'
@@ -35,7 +35,7 @@ services:
   # Suba com:  docker compose --profile tools up -d
   adminer:
     image: adminer:6.1.1
-    container_name: scada-adminer
+    container_name: talos-adminer
     restart: unless-stopped
     ports:
       - '8080:8080'

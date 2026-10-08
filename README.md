@@ -1,8 +1,10 @@
-# SCADA-EDU — Backend
+# TALOS
 
-Sistema supervisório web educacional 4.0: adquire variáveis de processo por
-MQTT, Modbus TCP e OPC UA, guarda o histórico num banco de séries temporais,
-avalia alarmes e entrega tudo em tempo real para um dashboard.
+Sistema supervisório web (SCADA) para a Indústria 4.0: adquire variáveis de
+processo por MQTT, Modbus TCP e OPC UA, guarda o histórico num banco de séries
+temporais, avalia alarmes e entrega tudo em tempo real para um dashboard.
+Tem também foco educacional: o código é aberto, comentado e acompanhado de
+simuladores para estudar cada protocolo sem equipamento real.
 
 - **Fase 1 (concluída):** banco de séries temporais (TimescaleDB), backend
   NestJS e o "Teste de Carga Simulado" (gerador de senoides que grava
@@ -168,8 +170,8 @@ curl -X POST localhost:3000/tags -H 'Content-Type: application/json' \
   -d '{"tag":"TT-900.PV","unit":"C","source":"mqtt","address":"lab/tt900"}'
 
 # publica valores
-docker exec scada-mosquitto mosquitto_pub -t lab/tt900 -q 1 -m 21.5
-docker exec scada-mosquitto mosquitto_pub -t lab/tt900 -q 1 \
+docker exec talos-mosquitto mosquitto_pub -t lab/tt900 -q 1 -m 21.5
+docker exec talos-mosquitto mosquitto_pub -t lab/tt900 -q 1 \
   -m '{"value": 22, "quality": 192}'
 
 curl localhost:3000/measurements/TT-900.PV/latest

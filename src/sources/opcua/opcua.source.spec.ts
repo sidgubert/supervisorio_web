@@ -30,7 +30,7 @@ import { OpcUaSource } from './opcua.source';
  */
 jest.setTimeout(30_000);
 
-const pki = mkdtempSync(join(tmpdir(), 'scada-opcua-test-'));
+const pki = mkdtempSync(join(tmpdir(), 'talos-opcua-test-'));
 const serverCertificateManager = new OPCUACertificateManager({
   rootFolder: join(pki, 'server'),
   automaticallyAcceptUnknownCertificate: true,

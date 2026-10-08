@@ -65,7 +65,7 @@ export class MqttSource implements AcquisitionSource, OnModuleInit {
     const username = this.config.get('MQTT_USERNAME', { infer: true }) || undefined;
     const password = this.config.get('MQTT_PASSWORD', { infer: true }) || undefined;
     const client = connect(url, {
-      clientId: `scada-edu-${randomBytes(4).toString('hex')}`,
+      clientId: `talos-${randomBytes(4).toString('hex')}`,
       username,
       password,
       clean: true,

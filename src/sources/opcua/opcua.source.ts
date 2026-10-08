@@ -156,7 +156,7 @@ export class OpcUaSource implements AcquisitionSource, OnModuleInit {
     });
     const client = lib.OPCUAClient.create({
       clientCertificateManager: this.certificates,
-      applicationName: 'scada-edu',
+      applicationName: 'talos',
       endpointMustExist: false,
       securityMode: lib.MessageSecurityMode.None,
       securityPolicy: lib.SecurityPolicy.None,

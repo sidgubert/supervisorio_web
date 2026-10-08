@@ -1,7 +1,7 @@
 {
-  "name": "scada-edu",
+  "name": "talos",
   "version": "0.1.0",
-  "description": "Sistema supervisorio web educacional 4.0 - backend",
+  "description": "TALOS - sistema supervisorio web (SCADA) para a Industria 4.0",
   "license": "MIT",
   "scripts": {
     "build": "nest build",

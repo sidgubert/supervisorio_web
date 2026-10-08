@@ -8,7 +8,7 @@ export class AppController {
   @Get()
   root() {
     return {
-      name: 'scada-edu',
+      name: 'talos',
       status: 'ok',
       phase: 1,
       endpoints: {
