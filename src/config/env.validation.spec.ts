@@ -23,6 +23,10 @@ describe('validateEnv', () => {
       MODBUS_PORT: 502,
       MODBUS_POLL_MS: 1000,
       MODBUS_TIMEOUT_MS: 2000,
+      OPCUA_ENABLED: false,
+      OPCUA_ENDPOINT: 'opc.tcp://localhost:4840',
+      OPCUA_SAMPLING_MS: 1000,
+      OPCUA_PKI_DIR: '.opcua-pki',
     });
   });
 

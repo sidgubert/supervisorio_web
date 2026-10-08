@@ -5,8 +5,9 @@ Sistema supervisório web educacional 4.0.
 - **Fase 1 (concluída):** banco de séries temporais, backend NestJS e o
   "Teste de Carga Simulado" (gerador de senoides que persiste continuamente
   no banco), com histórico agregado e tempo real via WebSocket.
-- **Fase 2 (em andamento):** aquisição real via MQTT e Modbus TCP (prontas)
-  e OPC UA, todas convergindo para o mesmo formato de amostra.
+- **Fase 2 (concluída):** aquisição real via MQTT, Modbus TCP e OPC UA,
+  todas convergindo para o mesmo formato de amostra, com cadastro de tags
+  editável pela API.
 
 ## Stack
 
@@ -17,11 +18,13 @@ Sistema supervisório web educacional 4.0.
 - **socket.io** — tempo real para o dashboard.
 - **MQTT.js** + **Mosquitto** — aquisição MQTT.
 - **modbus-serial** — aquisição Modbus TCP (cliente e simulador de CLP).
+- **node-opcua** — aquisição OPC UA (cliente; o servidor é usado nos testes e
+  no simulador).
 
 ## Pré-requisitos
 
 - Docker + Docker Compose
-- Node.js 20+
+- Node.js 22.13+ (exigido pelo node-opcua)
 
 ## Passo a passo
 
@@ -60,12 +63,19 @@ npm run lint        # ESLint (typescript-eslint, regras com checagem de tipos)
 npm run format      # formata com Prettier
 ```
 
+Algumas dependências do node-opcua são publicadas só em ESM. O Node as carrega
+normalmente, mas o Jest roda em CommonJS: o `jest.esm-transformer.cjs`
+converte apenas os pacotes listados em `transformIgnorePatterns` (no
+`package.json`).
+
 ## Estrutura
 
 ```
 docker-compose.yml      TimescaleDB, Mosquitto (+ Adminer opcional)
 docker/mosquitto/       configuração do broker MQTT de desenvolvimento
 tools/modbus-sim.ts     simulador de CLP Modbus TCP (npm run sim:modbus)
+tools/opcua-sim.ts      simulador de servidor OPC UA (npm run sim:opcua)
+jest.esm-transformer.cjs  converte dependências só-ESM para o Jest
 src/
   main.ts               bootstrap da API (CORS, porta, shutdown hooks)
   app.module.ts         config + conexão TypeORM
@@ -95,6 +105,9 @@ src/
     modbus/
       modbus-address.ts   endereços, agrupamento de leituras, decodificação
       modbus.source.ts    fonte "modbus": lê as tags em ciclos (polling)
+    opcua/
+      opcua-mapping.ts    NodeId, StatusCode -> qualidade, Variant -> número
+      opcua.source.ts     fonte "opcua": monitora as tags (subscription)
   realtime/
     live.gateway.ts     WebSocket (socket.io /live) para o dashboard
 ```
@@ -138,6 +151,7 @@ reiniciar. O estado de cada fonte aparece em `GET /sources`.
 | `sim`    | `SIM_ENABLED=true`    | — (gera as 4 tags de exemplo)                     |
 | `mqtt`   | `MQTT_ENABLED=true`   | tópico exato, sem `+` ou `#`                      |
 | `modbus` | `MODBUS_ENABLED=true` | `hr:0`, `ir:10?type=int16&scale=0.1`, `coil:3`... |
+| `opcua`  | `OPCUA_ENABLED=true`  | NodeId: `ns=3;s=SlowUInt1`, `ns=2;i=1001`         |
 
 ### MQTT
 
@@ -218,6 +232,50 @@ npm run sim:modbus     # CLP simulado em 127.0.0.1:5020 (mapa em tools/modbus-si
 Com `MODBUS_ENABLED=true` e `MODBUS_PORT=5020` no `.env`, cadastre as tags
 (ex: `{"tag":"PT-101.PV","unit":"bar","source":"modbus","address":"hr:0?scale=0.01"}`
 em `POST /tags`) e acompanhe em `GET /sources` e `GET /measurements/PT-101.PV/latest`.
+
+### OPC UA
+
+Conecta em `OPCUA_ENDPOINT` e monitora (_subscription_) o atributo Value de
+cada tag OPC UA, com amostragem de `OPCUA_SAMPLING_MS`. O `address` da tag é
+o NodeId: `ns=<n>;s=<texto>`, `ns=<n>;i=<número>`, `i=<número>` (namespace 0),
+`ns=<n>;g=<guid>` ou `ns=<n>;b=<base64>`.
+
+- O servidor avisa a cada mudança, sem polling. O horário da amostra é o
+  `sourceTimestamp` informado pelo servidor.
+- Tipos aceitos: Boolean (1/0), inteiros de 8 a 64 bits, Float (limitado a
+  7 dígitos significativos) e Double. Texto, data e arrays são ignorados, com
+  aviso no log.
+- StatusCode vira qualidade: Good → 192; Uncertain → 64, mantendo o valor;
+  Bad → grava **uma** amostra com o último valor bom e qualidade 0, como no
+  Modbus.
+- NodeIds que o servidor não conhece aparecem como "recusados" em
+  `GET /sources`; as demais tags seguem normalmente.
+- Sem servidor, a API sobe normalmente e a fonte reconecta sozinha; o
+  node-opcua restaura sessão e assinaturas. Uma queda de conexão marca as
+  tags monitoradas como Bad uma vez.
+- Segurança: SecurityMode None e acesso anônimo, adequado a laboratório. O
+  certificado do cliente fica em `OPCUA_PKI_DIR` (padrão `.opcua-pki/`, fora
+  do git); ao ligar segurança num servidor real, é o certificado de
+  `own/certs` que o servidor precisa confiar.
+- O node-opcua (cerca de 1 s para carregar) só é importado com
+  `OPCUA_ENABLED=true`.
+
+Para testar com o simulador (em outro terminal):
+
+```bash
+npm run sim:opcua      # servidor OPC UA em opc.tcp://localhost:4840 (variáveis em tools/opcua-sim.ts)
+```
+
+Com `OPCUA_ENABLED=true` e `OPCUA_ENDPOINT=opc.tcp://localhost:4840` no
+`.env`, cadastre por exemplo
+`{"tag":"TT-201.PV","unit":"°C","source":"opcua","address":"ns=1;s=Reator.Temperatura"}`.
+No simulador, `ns=1;s=Sensor.Instavel` entra em falha (Bad) por 10 s a cada
+minuto, e `ns=1;s=Linha.Status` é texto (ignorado).
+
+A fonte também foi testada com o Microsoft OPC PLC
+(`docker run -p 50000:50000 mcr.microsoft.com/iotedge/opc-plc:2.15.9 --pn=50000 --autoaccept --unsecuretransport`),
+cujas variáveis ficam em `ns=3` (ex: `ns=3;s=SpikeData`, `ns=3;s=StepUp` e
+`ns=3;s=BadFastUInt1`, que alterna entre Good, Uncertain e Bad).
 
 ## Configuração
 
@@ -340,11 +398,11 @@ npm run migration:create src/database/migrations/Nome  # cria uma nova, vazia
 Bancos criados pelo antigo `db/init.sql` são adotados sem alteração: a
 migration inicial é idempotente e apenas se registra.
 
-## Próximos passos (Fase 2)
+## Próximos passos
 
-- Fonte OPC UA: um novo `AcquisitionSource` (ver `mqtt.source.ts` e
-  `modbus.source.ts` como modelo), lendo as tags do cadastro e convertendo o
-  valor e o StatusCode do protocolo para `SampleInput`.
 - Alarmes: comparar as amostras de `samples$` com os limites da tabela `tags`.
 - Com taxas de aquisição altas, agrupar/limitar o envio do `LiveGateway`
   (hoje cada lote recebido vira um evento por tag).
+- node-opcua fixado em 2.183.x, a última linha com o pacote principal em
+  CommonJS; atualizar para a 2.184+ (só ESM) junto com uma migração do
+  projeto para ESM.

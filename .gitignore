@@ -24,3 +24,6 @@ Thumbs.db
 
 # Testes
 coverage/
+
+# Certificados do cliente OPC UA (OPCUA_PKI_DIR)
+.opcua-pki/

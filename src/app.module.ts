@@ -11,6 +11,7 @@ import { MeasurementsModule } from './measurements/measurements.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ModbusModule } from './sources/modbus/modbus.module';
 import { MqttModule } from './sources/mqtt/mqtt.module';
+import { OpcUaModule } from './sources/opcua/opcua.module';
 import { SimulatorModule } from './sources/simulator/simulator.module';
 import { TagsModule } from './tags/tags.module';
 
@@ -48,6 +49,7 @@ import { TagsModule } from './tags/tags.module';
     SimulatorModule,
     MqttModule,
     ModbusModule,
+    OpcUaModule,
   ],
 })
 export class AppModule {}

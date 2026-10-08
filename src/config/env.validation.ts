@@ -31,6 +31,11 @@ export interface Env {
   MODBUS_PORT: number;
   MODBUS_POLL_MS: number;
   MODBUS_TIMEOUT_MS: number;
+  OPCUA_ENABLED: boolean;
+  OPCUA_ENDPOINT: string;
+  OPCUA_SAMPLING_MS: number;
+  /** Pasta dos certificados do cliente OPC UA (relativa ao diretório da API). */
+  OPCUA_PKI_DIR: string;
 }
 
 /** Variáveis de ambiente cruas (sempre strings, vindas do process.env/.env). */
@@ -102,6 +107,10 @@ export function validateEnv(raw: Raw): Env {
     MODBUS_PORT: int('MODBUS_PORT', 502, 1, 65535),
     MODBUS_POLL_MS: int('MODBUS_POLL_MS', 1000, 50, 3_600_000),
     MODBUS_TIMEOUT_MS: int('MODBUS_TIMEOUT_MS', 2000, 100, 60_000),
+    OPCUA_ENABLED: bool('OPCUA_ENABLED', false),
+    OPCUA_ENDPOINT: url('OPCUA_ENDPOINT', 'opc.tcp://localhost:4840', ['opc.tcp']),
+    OPCUA_SAMPLING_MS: int('OPCUA_SAMPLING_MS', 1000, 50, 3_600_000),
+    OPCUA_PKI_DIR: str('OPCUA_PKI_DIR', '.opcua-pki'),
   };
 
   if (errors.length > 0) {
