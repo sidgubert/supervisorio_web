@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Env } from '../config/env.validation';
-import { AcquisitionSource, EmitFn } from '../ingestion/acquisition-source';
-import { IngestionService } from '../ingestion/ingestion.service';
+import { Env } from '../../config/env.validation';
+import { AcquisitionSource, EmitFn } from '../../ingestion/acquisition-source';
+import { IngestionService } from '../../ingestion/ingestion.service';
 import { DEFAULT_SIGNALS, generateSample } from './signal';
 
 /**

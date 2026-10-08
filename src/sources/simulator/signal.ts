@@ -5,7 +5,7 @@
  * justamente para ser testável de forma isolada e reaproveitável.
  */
 
-import { SampleInput } from '../ingestion/sample';
+import { SampleInput } from '../../ingestion/sample';
 
 export interface SignalSpec {
   /** Nome da tag, ex: "TIC-101.PV" */

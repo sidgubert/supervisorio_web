@@ -76,9 +76,10 @@ src/
     ingestion.service.ts   registro/ciclo de vida das fontes + normalização
     ingestion-buffer.ts    buffer limitado + gravação em lote no banco
     sample.ts              formatos SampleInput (da fonte) e Sample (do banco)
-  simulator/
-    signal.ts           geração de senoides (lógica pura, testável)
-    simulator.source.ts fonte "sim": emite as senoides a cada SIM_INTERVAL_MS
+  sources/              fontes de aquisição (uma pasta por protocolo)
+    simulator/
+      signal.ts           geração de senoides (lógica pura, testável)
+      simulator.source.ts fonte "sim": emite as senoides a cada SIM_INTERVAL_MS
   realtime/
     live.gateway.ts     WebSocket (socket.io /live) para o dashboard
 ```

@@ -5,8 +5,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { validateEnv } from '../config/env.validation';
 import { Measurement } from '../measurements/measurement.entity';
 import { MeasurementsService } from '../measurements/measurements.service';
-import { DEFAULT_SIGNALS } from '../simulator/signal';
-import { SimulatorModule } from '../simulator/simulator.module';
+import { DEFAULT_SIGNALS } from '../sources/simulator/signal';
+import { SimulatorModule } from '../sources/simulator/simulator.module';
 import { Sample } from './sample';
 
 /**

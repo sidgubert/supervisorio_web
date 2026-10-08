@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Env } from '../config/env.validation';
-import { SampleInput } from '../ingestion/sample';
-import { IngestionService } from '../ingestion/ingestion.service';
+import { Env } from '../../config/env.validation';
+import { SampleInput } from '../../ingestion/sample';
+import { IngestionService } from '../../ingestion/ingestion.service';
 import { DEFAULT_SIGNALS } from './signal';
 import { SimulatorSource } from './simulator.source';
 

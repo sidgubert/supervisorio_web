@@ -9,7 +9,7 @@ import { buildDataSourceOptions } from './database/typeorm.config';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { RealtimeModule } from './realtime/realtime.module';
-import { SimulatorModule } from './simulator/simulator.module';
+import { SimulatorModule } from './sources/simulator/simulator.module';
 import { TagsModule } from './tags/tags.module';
 
 @Module({
