@@ -44,5 +44,37 @@ services:
         condition: service_healthy
     profiles: ['tools']
 
+  # A própria API em container (opcional). Suba com:
+  #   docker compose --profile app up -d --build
+  # Lê o .env, trocando o que muda dentro da rede do Docker (banco e broker).
+  # Simuladores rodando no PC (npm run sim:modbus / sim:opcua) ficam em
+  # host.docker.internal, ex: MODBUS_HOST=host.docker.internal.
+  api:
+    build: .
+    image: talos:latest
+    container_name: talos-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_HOST: timescaledb
+      DB_PORT: 5432
+      PORT: 3000
+      MQTT_URL: mqtt://mosquitto:1883
+    ports:
+      - '${PORT:-3000}:3000'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - opcua_pki:/app/.opcua-pki
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    profiles: ['app']
+
 volumes:
   timescale_data:
+  opcua_pki:
