@@ -2,30 +2,39 @@
 
 Sistema supervisório web (SCADA) para a Indústria 4.0: adquire variáveis de
 processo por MQTT, Modbus TCP e OPC UA, guarda o histórico num banco de séries
-temporais, avalia alarmes e entrega tudo em tempo real para um dashboard.
+temporais, avalia alarmes e mostra tudo em tempo real num dashboard web.
 Tem também foco educacional: o código é aberto, comentado e acompanhado de
 simuladores para estudar cada protocolo sem equipamento real.
 
-- **Fase 1 (concluída):** banco de séries temporais (TimescaleDB), backend
-  NestJS e o "Teste de Carga Simulado" (gerador de senoides que grava
-  continuamente no banco), com histórico agregado e tempo real via WebSocket.
-- **Fase 2 (concluída):** aquisição real via MQTT, Modbus TCP e OPC UA, todas
-  convergindo para o mesmo formato de amostra, com cadastro de tags editável
-  pela API.
-- **Além das fases:** alarmes de processo (modelo simplificado da ISA-18.2).
+O projeto foi construído em cinco fases, todas concluídas:
+
+1. **Banco e carga simulada:** TimescaleDB, backend NestJS e um gerador de
+   senoides que grava continuamente no banco, com histórico agregado.
+2. **Aquisição real:** MQTT, Modbus TCP e OPC UA, todas convergindo para o
+   mesmo formato de amostra, com cadastro de tags editável pela API.
+3. **Dashboard e alarmes:** gráficos em tempo real (SSE e WebSocket) e alarmes
+   de processo (modelo simplificado da ISA-18.2).
+4. **Operação:** histórico de alarmes com quem reconheceu, sinótico do
+   processo, login e imagem Docker.
+5. **Desempenho:** métricas de ingestão e armazenamento, retenção
+   configurável, exportação CSV/JSON e comparação dos protocolos.
 
 ## Sumário
 
 - [Visão geral](#visão-geral)
 - [Como rodar](#como-rodar)
+- [Dashboard](#dashboard)
 - [Fontes de aquisição](#fontes-de-aquisição): [MQTT](#mqtt),
   [Modbus TCP](#modbus-tcp), [OPC UA](#opc-ua)
 - [Cadastro de tags](#cadastro-de-tags)
 - [Alarmes](#alarmes)
-- [Tempo real (WebSocket)](#tempo-real-websocket)
+- [Tempo real (SSE e WebSocket)](#tempo-real-sse-e-websocket)
+- [Autenticação](#autenticação)
+- [Métricas, retenção e exportação](#métricas-retenção-e-exportação)
 - [API HTTP](#api-http)
 - [Modelo de dados](#modelo-de-dados)
 - [Configuração](#configuração)
+- [Docker](#docker)
 - [Migrations](#migrations)
 - [Testes e qualidade de código](#testes-e-qualidade-de-código)
 - [Estrutura do código](#estrutura-do-código)
@@ -41,9 +50,13 @@ simuladores para estudar cada protocolo sem equipamento real.
  MqttSource      ─┼─ emit() ─► IngestionService ─► IngestionBuffer ─► TimescaleDB
  ModbusSource    ─┤            normaliza, valida    limitado; INSERT    (measurements)
  OpcUaSource     ─┘                  │              único, idempotente
-                                     │
-                                     └─► samples$ ─┬─► LiveGateway ──► dashboard (socket.io /live)
-                                                   └─► AlarmsService ─► tabela alarms + evento 'alarm'
+                                     │                     │
+                                     │                     └─► inserts$ ─► MetricsCollector
+                                     │                                     (amostras/s, latência)
+                                     └─► samples$ ─┬─► LiveFeedService ─► SSE /api/dashboard/stream
+                                                   │   (agrupa por tag)   e socket.io /live ─► dashboard
+                                                   └─► AlarmsService ───► tabela alarms + eventos
+                                                                          (pelos mesmos canais)
 ```
 
 - Cada **fonte** só sabe falar o seu protocolo e converter o valor para o
@@ -55,6 +68,8 @@ simuladores para estudar cada protocolo sem equipamento real.
 - As amostras válidas também saem na hora para o **tempo real** e para o
   **motor de alarmes**, antes do banco: os dois continuam funcionando com o
   banco fora do ar.
+- O **dashboard** é servido pela própria API (arquivos estáticos em
+  `public/`); a API fica sob `/api`.
 
 ## Stack
 
@@ -62,7 +77,9 @@ simuladores para estudar cada protocolo sem equipamento real.
 - **NestJS** sobre **Express** — framework do backend.
 - **TypeORM** + driver `pg` — acesso ao banco e migrations.
 - **TypeScript** — tipagem estática.
-- **socket.io** — tempo real para o dashboard.
+- **SSE** (Server-Sent Events) e **socket.io** — tempo real.
+- **HTML, CSS e JavaScript** sem framework nem build, com **Chart.js** — o
+  dashboard.
 - **MQTT.js** + **Mosquitto** — aquisição MQTT.
 - **modbus-serial** — aquisição Modbus TCP (cliente e simulador de CLP).
 - **node-opcua** — aquisição OPC UA (cliente; o servidor é usado nos testes e
@@ -90,13 +107,14 @@ npm install
 npm run start:dev
 ```
 
-A API sobe em `http://localhost:3000`; `GET /` lista os endpoints. Com
-`SIM_ENABLED=true` (padrão), o simulador começa a gerar amostras de 4 tags na
-hora. Para conferir que os dados estão sendo gravados:
+Abra **http://localhost:3000**: é o dashboard. A API fica sob `/api`
+(`GET /api` lista os endpoints). Com `SIM_ENABLED=true` (padrão), o simulador
+começa a gerar amostras de 4 tags na hora, e os gráficos já se mexem. Pela
+linha de comando:
 
 ```bash
-curl localhost:3000/sources
-curl localhost:3000/measurements/TIC-101.PV/latest?limit=5
+curl localhost:3000/api/sources
+curl localhost:3000/api/measurements/TIC-101.PV/latest?limit=5
 ```
 
 Para experimentar as outras fontes sem equipamento real, há simuladores:
@@ -108,6 +126,27 @@ Para experimentar as outras fontes sem equipamento real, há simuladores:
 | OPC UA      | `npm run sim:opcua` (porta 4840)  | `OPCUA_ENABLED=true`, `OPCUA_ENDPOINT=opc.tcp://localhost:4840` |
 
 Em seguida, cadastre tags para essas fontes (exemplos em cada seção abaixo).
+Para rodar a API também em container, veja [Docker](#docker).
+
+## Dashboard
+
+Servido pela própria API, sem build: HTML, CSS e JavaScript (módulos ES) em
+`public/`, e o Chart.js servido de `node_modules`, para funcionar sem
+internet.
+
+| Tela                     | O que mostra                                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| **Gráficos**             | Um gráfico por tag (últimos 15 min, atualizado ao vivo) e os alarmes abertos, com reconhecimento um a um ou de todos |
+| **Sinótico**             | Desenho do processo com os valores ao vivo; instrumentos em alarme ficam destacados                                  |
+| **Histórico de alarmes** | Últimas 24 h: quando cada alarme ativou, normalizou e quem reconheceu                                                |
+| **Métricas**             | Ingestão por fonte, armazenamento e compressão, comparação dos protocolos e exportação CSV                           |
+| **Configuração**         | Faixa, limites de alarme, banda morta e posição no sinótico de cada tag                                              |
+
+O tempo real chega por SSE (`/api/dashboard/stream`); se a conexão cair, o
+navegador reconecta sozinho. Com o login ligado
+([Autenticação](#autenticação)), o dashboard pede usuário e senha antes de
+tudo. Todo texto vindo da API é escapado antes de ir para a tela: um nome de
+tag como `<img onerror=...>` aparece como texto, sem executar nada.
 
 ## Fontes de aquisição
 
@@ -116,7 +155,7 @@ Cada fonte adquire as tags do cadastro com `source` igual ao seu nome e
 fonte na hora, sem reiniciar. Em comum, todas:
 
 - sobem mesmo com o equipamento ou broker fora do ar, e reconectam sozinhas;
-- registram o estado em `GET /sources` (conectada, tags, amostras, última
+- registram o estado em `GET /api/sources` (conectada, tags, amostras, última
   amostra);
 - convertem a qualidade do protocolo para o byte de qualidade interno
   (192 Good, 64 Uncertain, 0 Bad).
@@ -166,7 +205,7 @@ laboratório):
 
 ```bash
 # cadastra uma tag MQTT
-curl -X POST localhost:3000/tags -H 'Content-Type: application/json' \
+curl -X POST localhost:3000/api/tags -H 'Content-Type: application/json' \
   -d '{"tag":"TT-900.PV","unit":"C","source":"mqtt","address":"lab/tt900"}'
 
 # publica valores
@@ -174,7 +213,7 @@ docker exec talos-mosquitto mosquitto_pub -t lab/tt900 -q 1 -m 21.5
 docker exec talos-mosquitto mosquitto_pub -t lab/tt900 -q 1 \
   -m '{"value": 22, "quality": 192}'
 
-curl localhost:3000/measurements/TT-900.PV/latest
+curl localhost:3000/api/measurements/TT-900.PV/latest
 ```
 
 ### Modbus TCP
@@ -215,7 +254,7 @@ Comportamento:
 Com o simulador (`npm run sim:modbus`; mapa de registradores em
 `tools/modbus-sim.ts`), cadastre por exemplo
 `{"tag":"PT-101.PV","unit":"bar","source":"modbus","address":"hr:0?scale=0.01"}`
-em `POST /tags`.
+em `POST /api/tags`.
 
 ### OPC UA
 
@@ -233,7 +272,7 @@ o NodeId: `ns=<n>;s=<texto>`, `ns=<n>;i=<número>`, `i=<número>` (namespace 0),
   Bad → grava **uma** amostra com o último valor bom e qualidade 0, como no
   Modbus.
 - NodeIds que o servidor não conhece aparecem como "recusados" em
-  `GET /sources`; as demais tags seguem normalmente.
+  `GET /api/sources`; as demais tags seguem normalmente.
 - Ao reconectar, o node-opcua restaura sessão e assinaturas. Uma queda de
   conexão marca as tags monitoradas como Bad uma vez.
 - Segurança: SecurityMode None e acesso anônimo, adequado a laboratório. O
@@ -261,7 +300,7 @@ de engenharia), limites de alarme e de onde ela é adquirida (`source` e
 `address`). As 4 tags do simulador já vêm cadastradas.
 
 ```bash
-curl -X POST localhost:3000/tags -H 'Content-Type: application/json' -d '{
+curl -X POST localhost:3000/api/tags -H 'Content-Type: application/json' -d '{
   "tag": "PT-500.PV",
   "description": "Pressão do vaso",
   "unit": "bar",
@@ -280,10 +319,12 @@ curl -X POST localhost:3000/tags -H 'Content-Type: application/json' -d '{
 - Limites em ordem (`alarmLL ≤ alarmL < alarmH ≤ alarmHH`, todo limite baixo
   abaixo de todo alto) e `engMin < engMax`. `alarmDeadband` (≥ 0) é a banda
   morta dos alarmes.
+- `synopticKind` (`tank`, `pressure`, `flow`, `level` ou `sensor`) e
+  `synopticX`/`synopticY` (0 a 100, em % da tela) põem a tag no sinótico.
 - O `address` é conferido no formato da fonte (tópico MQTT, endereço Modbus,
   NodeId): um endereço errado é recusado já no cadastro.
-- `PATCH /tags/:tag` altera campos (ausente = mantém; `null` = apaga).
-  `DELETE /tags/:tag` remove do cadastro; o histórico de medições é mantido.
+- `PATCH /api/tags/:tag` altera campos (ausente = mantém; `null` = apaga).
+  `DELETE /api/tags/:tag` remove do cadastro; o histórico de medições é mantido.
 - Erros de validação respondem `400` com a lista de problemas; campos
   desconhecidos também são recusados.
 
@@ -294,13 +335,17 @@ alarme independente, avaliado a cada amostra que chega, de qualquer fonte:
 
 - **Alto** (H, HH) ativa com valor ≥ limite; **baixo** (L, LL), com
   valor ≤ limite. Acima de HH, H e HH ficam ativos juntos.
-- Normaliza quando o valor volta além da **banda morta** (`alarmDeadband`):
-  um alarme alto só normaliza abaixo de (limite − banda). Sem isso, um valor
-  oscilando em cima do limite geraria uma rajada de alarmes.
+- Normaliza quando o valor volta além da **banda morta**: um alarme alto só
+  normaliza abaixo de (limite − banda). A banda é a `alarmDeadband` da tag
+  ou, sem ela, `ALARM_HYSTERESIS_PCT` (padrão 2%) do limite. Sem banda morta,
+  um valor oscilando em cima do limite geraria uma rajada de alarmes.
 - Amostras com qualidade Bad não são avaliadas (o valor é o último bom).
-- Um alarme fica **aberto** (em `GET /alarms`) enquanto estiver ativo **ou**
+- Um alarme fica **aberto** (em `GET /api/alarms`) enquanto estiver ativo **ou**
   não reconhecido. Estados: `ACTIVE_UNACKED`, `ACTIVE_ACKED`,
   `CLEARED_UNACKED` e, fora da lista, `CLOSED` (normalizado e reconhecido).
+- O reconhecimento registra quem reconheceu: o usuário do login ou, com o
+  login desligado, o `by` enviado no corpo (`{"by": "Maria"}`); sem nenhum
+  dos dois, "anônimo".
 - Remover um limite (ou a tag) normaliza o alarme ativo correspondente.
 
 O estado vive em memória: os alarmes continuam ativando, normalizando e
@@ -312,20 +357,42 @@ recarregados do banco.
 Para ver funcionando com o simulador (vazão entre 95 e 145 m³/h a cada 45 s):
 
 ```bash
-curl -X PATCH localhost:3000/tags/FIC-301.PV -H 'Content-Type: application/json' \
+curl -X PATCH localhost:3000/api/tags/FIC-301.PV -H 'Content-Type: application/json' \
   -d '{"alarmH": 130, "alarmDeadband": 2}'
-curl localhost:3000/alarms
-curl -X POST localhost:3000/alarms/ack-all
+curl localhost:3000/api/alarms
+curl -X POST localhost:3000/api/alarms/ack-all
 ```
 
-## Tempo real (WebSocket)
+## Tempo real (SSE e WebSocket)
 
-socket.io no namespace `/live`:
+Há dois canais, com o mesmo conteúdo:
+
+- **SSE** em `GET /api/dashboard/stream`, o que o dashboard usa: HTTP comum,
+  só do servidor para o cliente, sempre com todas as tags. O navegador
+  reconecta sozinho.
+- **socket.io** no namespace `/live`: bidirecional, com assinatura por tag.
+
+### SSE
+
+```js
+const es = new EventSource('/api/dashboard/stream'); // com login: ?token=...
+es.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  // { type: 'sample', tag, value, quality, source, time }
+  // { type: 'alarm', change: 'raised' | 'cleared' | 'acknowledged', alarm }
+  // { type: 'ping' } a cada 25 s, para proxies não fecharem a conexão ociosa
+};
+```
+
+Para a primeira carga da tela, `GET /api/dashboard/tags` traz o último valor
+de cada tag, e `GET /api/dashboard/alarms`, os alarmes abertos e o cadastro.
+
+### socket.io
 
 ```js
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:3000/live');
+const socket = io('http://localhost:3000/live'); // com login: { auth: { token } }
 
 // Assina tags (sem `tags`, ou lista vazia = todas). O ack já traz o último
 // valor conhecido de cada tag, para o gráfico não começar vazio.
@@ -344,32 +411,101 @@ socket.on('alarm', ({ type, alarm }) => {
 });
 ```
 
-As amostras de cada tag saem agrupadas: um evento por tag a cada
-`LIVE_FLUSH_MS` (padrão 200 ms; 0 = imediato), com no máximo
-`LIVE_MAX_SAMPLES_PER_TAG` amostras (as mais recentes). Assim uma fonte rápida
-não inunda o navegador; o histórico completo está no banco.
+Nos dois canais, as amostras de cada tag saem agrupadas (`LiveFeedService`):
+um lote por tag a cada `LIVE_FLUSH_MS` (padrão 200 ms; 0 = imediato), com no
+máximo `LIVE_MAX_SAMPLES_PER_TAG` amostras (as mais recentes). Assim uma fonte
+rápida não inunda o navegador; o histórico completo está no banco.
+
+## Autenticação
+
+Desligada por padrão (`AUTH_ENABLED=false`), o que basta para laboratório:
+API e dashboard ficam abertos. Para ligar, no `.env`:
+
+```env
+AUTH_ENABLED=true
+AUTH_USER=operador
+AUTH_PASSWORD=uma-senha-forte
+AUTH_SECRET=32-ou-mais-caracteres-aleatorios
+```
+
+O `AUTH_SECRET` assina os tokens. Gere um com
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+Sem senha, ou com segredo curto ou igual ao do exemplo, a API não sobe.
+
+- `POST /api/auth/login` com `{"username": ..., "password": ...}` devolve
+  `{ token, user }`. O token vale 24 h e vai no cabeçalho
+  `Authorization: Bearer <token>`; no SSE, que não aceita cabeçalhos, vai em
+  `?token=`; no socket.io, em `auth: { token }`.
+- Sem token válido, a API responde `401`. Ficam abertos só
+  `GET /api/health`, `GET /api/auth/status` e o login. Os arquivos do
+  dashboard carregam sem token, mas a tela leva ao login antes de chamar a
+  API.
+- No máximo 5 tentativas de login por minuto por IP (`429` acima disso), o
+  que inviabiliza adivinhar a senha por tentativa e erro. Senha e assinatura
+  são comparadas em tempo constante.
+- O token é `payload.assinatura` (HMAC-SHA256), escrito à mão para ser fácil
+  de estudar em `src/auth/auth.service.ts`. Há um único usuário; ver
+  [Próximos passos](#próximos-passos).
+
+## Métricas, retenção e exportação
+
+A tela **Métricas** e as rotas `/api/metrics` medem o próprio sistema:
+
+| Rota                                            | O que traz                                                                                                                                    |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/metrics/overview`                     | Por fonte: amostras/s e lotes/s (janela de 60 s), totais e latência média da gravação no banco; clientes e eventos do SSE e do WebSocket      |
+| `GET /api/metrics/storage`                      | Linhas e tamanho da hypertable, compressão (chunks e economia), período com dados, amostras por fonte nas últimas 24 h e política de retenção |
+| `GET /api/metrics/protocols`                    | Perfil de cada protocolo (paradigma, transporte, uso típico, complexidade) ao lado das métricas ao vivo dele                                  |
+| `GET /api/metrics/export?minutes=60&format=csv` | Resumo por fonte e tag (amostras, primeira e última, média, mínimo, máximo) dos últimos `minutes` (até 7 dias), em `csv` ou `json`            |
+
+- Em tabelas grandes, a contagem de linhas usa a estimativa do TimescaleDB
+  (`approximate_row_count`), sem varrer a tabela; a resposta indica quando o
+  número é aproximado.
+- O CSV abre direto no Excel (UTF-8 com BOM). Textos que começam com `=`,
+  `+`, `-` ou `@` ganham um apóstrofo na frente, para a planilha não os
+  executar como fórmula.
+
+**Retenção.** Por padrão o histórico é guardado para sempre. Com
+`RETENTION_ENABLED=true`, a API cria na subida a política de retenção do
+TimescaleDB, que apaga as medições mais antigas que `RETENTION_DAYS` (padrão
+90). O `.env` manda: ao mudar o prazo ou desligar e reiniciar a API, a
+política é recriada ou removida. O mínimo é 8 dias, acima da janela de
+reprocessamento do agregado de 1 hora (7 dias): com menos, o agregado seria
+recalculado a partir de dados já apagados. Os agregados `measurements_1m` e
+`measurements_1h` não são apagados pela retenção.
 
 ## API HTTP
 
-| Método | Rota                                           | Descrição                                            |
-| ------ | ---------------------------------------------- | ---------------------------------------------------- |
-| GET    | `/`                                            | Lista os endpoints                                   |
-| GET    | `/health`                                      | `200` se o banco responde; `503` se não              |
-| GET    | `/sources`                                     | Estado das fontes de aquisição                       |
-| GET    | `/tags`                                        | Tags cadastradas                                     |
-| GET    | `/tags/:tag`                                   | Uma tag (`404` se não existir)                       |
-| POST   | `/tags`                                        | Cadastra uma tag (`409` se já existir)               |
-| PATCH  | `/tags/:tag`                                   | Altera campos de uma tag                             |
-| DELETE | `/tags/:tag`                                   | Remove uma tag do cadastro (`204`)                   |
-| GET    | `/measurements/:tag/latest?limit=100`          | Últimas amostras (`limit` de 1 a 5000)               |
-| GET    | `/measurements/:tag/history?from=&to=&bucket=` | Série para gráficos (ver abaixo)                     |
-| GET    | `/alarms`                                      | Alarmes abertos, mais graves primeiro                |
-| GET    | `/alarms/history?from=&to=&tag=&limit=`        | Histórico de alarmes (padrão: últimas 24 h, até 200) |
-| POST   | `/alarms/:id/ack`                              | Reconhece um alarme (`404` se não estiver aberto)    |
-| POST   | `/alarms/ack-all`                              | Reconhece todos os alarmes abertos                   |
+Todas as rotas ficam sob `/api`. Com o login ligado, exigem
+`Authorization: Bearer <token>`, exceto as marcadas com \*.
 
-`/measurements/:tag/history`: `from`/`to` em ISO 8601 (padrão: última hora).
-`bucket`:
+| Método | Rota                                               | Descrição                                            |
+| ------ | -------------------------------------------------- | ---------------------------------------------------- |
+| GET    | `/api`                                             | Lista os endpoints                                   |
+| GET    | `/api/health` \*                                   | `200` se o banco responde; `503` se não              |
+| GET    | `/api/auth/status` \*                              | Se o login está ligado                               |
+| POST   | `/api/auth/login` \*                               | Login (ver [Autenticação](#autenticação))            |
+| GET    | `/api/auth/me`                                     | Usuário do token                                     |
+| GET    | `/api/sources`                                     | Estado das fontes de aquisição                       |
+| GET    | `/api/tags`                                        | Tags cadastradas                                     |
+| GET    | `/api/tags/:tag`                                   | Uma tag (`404` se não existir)                       |
+| POST   | `/api/tags`                                        | Cadastra uma tag (`409` se já existir)               |
+| PATCH  | `/api/tags/:tag`                                   | Altera campos de uma tag                             |
+| DELETE | `/api/tags/:tag`                                   | Remove uma tag do cadastro (`204`)                   |
+| GET    | `/api/measurements/:tag/latest?limit=100`          | Últimas amostras (`limit` de 1 a 5000)               |
+| GET    | `/api/measurements/:tag/history?from=&to=&bucket=` | Série para gráficos (ver abaixo)                     |
+| GET    | `/api/alarms`                                      | Alarmes abertos, mais graves primeiro                |
+| GET    | `/api/alarms/history?from=&to=&tag=&limit=`        | Histórico de alarmes (padrão: últimas 24 h, até 200) |
+| POST   | `/api/alarms/:id/ack`                              | Reconhece um alarme (`404` se não estiver aberto)    |
+| POST   | `/api/alarms/ack-all`                              | Reconhece todos os alarmes abertos                   |
+| GET    | `/api/dashboard/tags`                              | Último valor de cada tag                             |
+| GET    | `/api/dashboard/alarms`                            | Alarmes abertos e o cadastro de tags                 |
+| GET    | `/api/dashboard/stream`                            | SSE: amostras e alarmes em tempo real                |
+| GET    | `/api/metrics/overview`, `/storage`, `/protocols`  | Métricas (ver seção anterior)                        |
+| GET    | `/api/metrics/export?minutes=&format=`             | Exportação CSV ou JSON                               |
+
+`/api/measurements/:tag/history`: `from`/`to` em ISO 8601 (padrão: última
+hora), ou `minutes=N` para os últimos N minutos (sem `from`). `bucket`:
 
 - `auto` (padrão): escolhe pela duração — até 30 min `raw`, até 36 h `1m`,
   acima disso `1h` (gráficos com no máximo cerca de 2 mil pontos);
@@ -393,8 +529,8 @@ recomendado para hypertables: adicionar tags não altera o schema):
   regravar um lote (ex: a conexão caiu depois de o banco confirmar a gravação)
   não duplica amostras.
 - Chunks com mais de 7 dias são comprimidos pelo TimescaleDB (formato colunar,
-  agrupado por tag). A retenção fica desligada, para manter o histórico
-  completo; para ligar: `SELECT add_retention_policy('measurements', INTERVAL '1 year');`
+  agrupado por tag). A retenção (apagar medições antigas) é configurada no
+  `.env`: ver [Métricas, retenção e exportação](#métricas-retenção-e-exportação).
 
 **`measurements_1m`** e **`measurements_1h`** — _continuous aggregates_ com
 `avg/min/max/count` por tag e intervalo, atualizadas por jobs do próprio
@@ -404,13 +540,14 @@ ficam defasadas. A janela de reprocessamento (1 e 7 dias) cobre amostras que
 chegam atrasadas, como as regravadas pelo buffer após uma queda do banco.
 
 **`tags`** — o cadastro: descrição, unidade, faixa de engenharia, limites e
-banda morta de alarme (ordem garantida também por CHECK), `source` e
-`address`. Não há chave estrangeira de `measurements.tag` para `tags`, de
+banda morta de alarme (ordem garantida também por CHECK), `source`,
+`address` e a posição no sinótico. Não há chave estrangeira de `measurements.tag` para `tags`, de
 propósito: uma amostra de tag não cadastrada faria o lote inteiro falhar e
 travaria o buffer de ingestão.
 
 **`alarms`** — cada ocorrência de alarme: tag, nível, limite, valor e horário
-ao ativar e ao normalizar, horário do reconhecimento. O estado sai dos
+ao ativar e ao normalizar, horário do reconhecimento e quem reconheceu
+(`acked_by`). O estado sai dos
 carimbos (ativo = `cleared_at` nulo; reconhecido = `acked_at` preenchido). Um
 índice único parcial garante no máximo uma ocorrência ativa por tag e nível.
 
@@ -431,8 +568,15 @@ problemas.
 | `PORT`                     | `3000`                     | Porta da API                                                      |
 | `INGEST_FLUSH_MS`          | `2000`                     | Intervalo de gravação do buffer de ingestão                       |
 | `INGEST_BUFFER_MAX`        | `100000`                   | Teto do buffer (banco fora: descarta as amostras mais antigas)    |
-| `LIVE_FLUSH_MS`            | `200`                      | Janela de agrupamento do WebSocket (0 = imediato)                 |
-| `LIVE_MAX_SAMPLES_PER_TAG` | `100`                      | Máximo de amostras por tag em cada envio do WebSocket             |
+| `LIVE_FLUSH_MS`            | `200`                      | Janela de agrupamento do tempo real (0 = imediato)                |
+| `LIVE_MAX_SAMPLES_PER_TAG` | `100`                      | Máximo de amostras por tag em cada envio do tempo real            |
+| `ALARM_HYSTERESIS_PCT`     | `2`                        | Banda morta padrão (% do limite), para tag sem `alarmDeadband`    |
+| `RETENTION_ENABLED`        | `false`                    | Apaga medições antigas (política de retenção do TimescaleDB)      |
+| `RETENTION_DAYS`           | `90`                       | Prazo da retenção, em dias (mínimo 8)                             |
+| `AUTH_ENABLED`             | `false`                    | Liga o login                                                      |
+| `AUTH_USER`                | `operador`                 | Usuário                                                           |
+| `AUTH_PASSWORD`            | vazio                      | Senha (obrigatória com o login ligado)                            |
+| `AUTH_SECRET`              | vazio                      | Segredo que assina os tokens (32+ caracteres aleatórios)          |
 | `SIM_ENABLED`              | `true`                     | Liga o simulador de senoides                                      |
 | `SIM_INTERVAL_MS`          | `1000`                     | Intervalo do simulador                                            |
 | `MQTT_ENABLED`             | `false`                    | Liga a fonte MQTT (`true` no `.env.example`)                      |
@@ -448,6 +592,23 @@ problemas.
 | `OPCUA_ENDPOINT`           | `opc.tcp://localhost:4840` | Servidor OPC UA                                                   |
 | `OPCUA_SAMPLING_MS`        | `1000`                     | Amostragem e intervalo de publicação da assinatura                |
 | `OPCUA_PKI_DIR`            | `.opcua-pki`               | Pasta dos certificados do cliente OPC UA                          |
+
+## Docker
+
+A API também roda em container, junto do banco e do broker:
+
+```bash
+docker compose --profile app up -d --build
+```
+
+- A imagem (`Dockerfile`) tem duas etapas: a primeira compila o TypeScript; a
+  segunda leva só o JavaScript, o dashboard e as dependências de produção, e
+  roda com usuário sem privilégios e _healthcheck_ em `/api/health`.
+- O container lê o `.env`, trocando o endereço do banco e do broker pelos
+  nomes da rede do Docker. Simuladores rodando no PC ficam em
+  `host.docker.internal` (ex: `MODBUS_HOST=host.docker.internal`).
+- Os certificados do cliente OPC UA ficam no volume `opcua_pki`.
+- Pare o `npm run start:dev` antes: os dois usam a porta 3000.
 
 ## Migrations
 
@@ -481,16 +642,23 @@ subida e caindo no meio da operação.
 ## Estrutura do código
 
 ```
-docker-compose.yml        TimescaleDB, Mosquitto (+ Adminer opcional)
+docker-compose.yml        TimescaleDB e Mosquitto (+ API e Adminer, opcionais)
+Dockerfile                imagem da API
 docker/mosquitto/         configuração do broker MQTT de desenvolvimento
+public/                   dashboard (sem build)
+  index.html, login.html
+  css/dashboard.css
+  js/                     um módulo por tela (dashboard, synoptic, alarms-history,
+                          metrics, config), login e acesso à API (auth.js)
 tools/
   modbus-sim.ts           simulador de CLP Modbus TCP (npm run sim:modbus)
   opcua-sim.ts            simulador de servidor OPC UA (npm run sim:opcua)
 jest.esm-transformer.cjs  converte dependências só-ESM para o Jest
 src/
-  main.ts                 bootstrap da API (CORS, porta, shutdown hooks)
+  main.ts                 bootstrap: prefixo /api, dashboard estático, CORS, shutdown hooks
   app.module.ts           configuração, conexão com o banco, módulos
-  app.controller.ts       GET / e GET /health
+  app.controller.ts       GET /api e GET /api/health
+  auth/                   login, token, guarda global (@Public() libera uma rota)
   common/                 utilitários (mensagens de erro, log com limite, filtro de erros do banco)
   config/
     env.validation.ts     validação e conversão das variáveis de ambiente
@@ -513,7 +681,10 @@ src/
   measurements/           gravação em lote, latest e history
   alarms/                 motor de alarmes (alarm-rules.ts: regras puras)
   realtime/
+    live-feed.service.ts  agrupa as amostras por tag (comum ao SSE e ao WebSocket)
     live.gateway.ts       WebSocket (socket.io /live)
+  dashboard/              rotas do dashboard e o SSE
+  metrics/                métricas, estatísticas do banco, retenção, exportação CSV
 ```
 
 ## CommonJS, ESM e o node-opcua
@@ -549,9 +720,12 @@ que só se justifica se outras dependências passarem a exigir.
 
 ## Próximos passos
 
-- **Autenticação e autorização.** A API e o WebSocket estão abertos (CORS
-  liberado para qualquer origem), e o reconhecimento de alarmes não registra
-  quem reconheceu. Necessário antes de expor o sistema fora do laboratório.
-- **Imagem Docker da API**, para implantação; hoje só o banco e o broker rodam
-  em container.
+- **Usuários e perfis.** Hoje há um único usuário (`AUTH_USER`), sem
+  distinção entre quem só acompanha e quem reconhece alarmes ou altera tags.
+  O passo seguinte é guardar usuários no banco (senha com hash, ex: argon2) e
+  criar perfis.
+- **CORS e HTTPS.** O CORS está liberado para qualquer origem (o token vai no
+  cabeçalho, não em cookie, então outro site não consegue usá-lo sozinho), e
+  a API fala HTTP puro. Fora do laboratório: restringir as origens e pôr um
+  proxy com HTTPS na frente.
 - **Atualizar o node-opcua** para a linha 2.184+, conforme a seção anterior.
