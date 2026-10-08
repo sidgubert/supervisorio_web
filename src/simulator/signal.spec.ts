@@ -29,15 +29,9 @@ describe('sampleSignal', () => {
 });
 
 describe('generateSample', () => {
-  it('monta a amostra completa com qualidade Good e source "sim"', () => {
+  it('monta a amostra da tag no instante informado', () => {
     const at = new Date(1000);
-    expect(generateSample(spec, at)).toEqual({
-      time: at,
-      tag: 'T',
-      value: 12,
-      quality: 192,
-      source: 'sim',
-    });
+    expect(generateSample(spec, at)).toEqual({ time: at, tag: 'T', value: 12 });
   });
 });
 

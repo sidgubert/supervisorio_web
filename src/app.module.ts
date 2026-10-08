@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { Env, validateEnv } from './config/env.validation';
+import { IngestionModule } from './ingestion/ingestion.module';
 import { Measurement } from './measurements/measurement.entity';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { SimulatorModule } from './simulator/simulator.module';
@@ -27,6 +28,7 @@ import { SimulatorModule } from './simulator/simulator.module';
       }),
     }),
     MeasurementsModule,
+    IngestionModule,
     SimulatorModule,
   ],
 })

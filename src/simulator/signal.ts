@@ -5,6 +5,8 @@
  * justamente para ser testável de forma isolada e reaproveitável.
  */
 
+import { SampleInput } from '../ingestion/sample';
+
 export interface SignalSpec {
   /** Nome da tag, ex: "TIC-101.PV" */
   tag: string;
@@ -18,14 +20,6 @@ export interface SignalSpec {
   noise: number;
   /** Unidade de engenharia, apenas informativa */
   unit?: string;
-}
-
-export interface Sample {
-  time: Date;
-  tag: string;
-  value: number;
-  quality: number;
-  source: string;
 }
 
 /**
@@ -43,15 +37,12 @@ export function sampleSignal(spec: SignalSpec, atMs: number): number {
   return Number((base + noise).toFixed(3));
 }
 
-/** Gera uma amostra completa, pronta para persistência, para uma tag. */
-export function generateSample(spec: SignalSpec, at: Date = new Date()): Sample {
-  return {
-    time: at,
-    tag: spec.tag,
-    value: sampleSignal(spec, at.getTime()),
-    quality: 192, // Good (padrão OPC)
-    source: 'sim',
-  };
+/**
+ * Gera uma amostra de uma tag. Qualidade e origem são preenchidas pelo
+ * núcleo de ingestão (Good e "sim").
+ */
+export function generateSample(spec: SignalSpec, at: Date = new Date()): SampleInput {
+  return { time: at, tag: spec.tag, value: sampleSignal(spec, at.getTime()) };
 }
 
 /**

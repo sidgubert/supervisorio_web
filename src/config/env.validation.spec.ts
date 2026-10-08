@@ -11,16 +11,16 @@ describe('validateEnv', () => {
       PORT: 3000,
       SIM_ENABLED: true,
       SIM_INTERVAL_MS: 1000,
-      SIM_BATCH_FLUSH_MS: 2000,
-      SIM_BUFFER_MAX: 100_000,
+      INGEST_FLUSH_MS: 2000,
+      INGEST_BUFFER_MAX: 100_000,
     });
   });
 
   it('converte números e booleanos', () => {
-    const env = validateEnv({ DB_PORT: '5433', SIM_ENABLED: 'false', SIM_BUFFER_MAX: '500' });
+    const env = validateEnv({ DB_PORT: '5433', SIM_ENABLED: 'false', INGEST_BUFFER_MAX: '500' });
     expect(env.DB_PORT).toBe(5433);
     expect(env.SIM_ENABLED).toBe(false);
-    expect(env.SIM_BUFFER_MAX).toBe(500);
+    expect(env.INGEST_BUFFER_MAX).toBe(500);
   });
 
   it('lista todos os erros de uma vez', () => {

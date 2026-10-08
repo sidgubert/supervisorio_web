@@ -64,10 +64,33 @@ src/
   config/
     env.validation.ts   validação/conversão das variáveis de ambiente
   measurements/         entidade + service (insert em lote, consulta)
+  ingestion/            núcleo comum a todas as fontes de dados
+    acquisition-source.ts  contrato que toda fonte implementa
+    ingestion.service.ts   registro/ciclo de vida das fontes + normalização
+    ingestion-buffer.ts    buffer limitado + gravação em lote no banco
+    sample.ts              formatos SampleInput (da fonte) e Sample (do banco)
   simulator/
     signal.ts           geração de senoides (lógica pura, testável)
-    simulator.service.ts loop de geração + flush em lote no banco
+    simulator.source.ts fonte "sim": emite as senoides a cada SIM_INTERVAL_MS
 ```
+
+## Arquitetura de ingestão
+
+```
+SimulatorSource ─┐
+(MqttSource)    ─┼─ emit(SampleInput[]) ─► IngestionService ─► IngestionBuffer ─► MeasurementsService ─► TimescaleDB
+(ModbusSource)  ─┤                         normaliza + valida   limitado, 1 flush   insert em blocos
+(OpcUaSource)   ─┘                                              por vez             numa transação
+```
+
+- Uma fonte implementa `AcquisitionSource` (`name`, `start(emit)`, `stop()`)
+  e se registra no `IngestionService` no seu `onModuleInit`. Ela não conhece
+  buffer nem banco: só converte o payload do protocolo para `SampleInput`.
+- O `IngestionService` aplica a qualidade padrão (192 = Good), grava o nome da
+  fonte em `source` e descarta amostras inválidas (tag vazia, valor
+  NaN/Infinity, data inválida).
+- Na subida, as fontes são iniciadas; uma que falhe não derruba as outras. No
+  encerramento, as fontes param **antes** de o buffer ser esvaziado no banco.
 
 ## Configuração
 
@@ -75,7 +98,7 @@ Todas as variáveis estão em `.env.example`. Elas são validadas na subida:
 se alguma estiver inválida (ex: `SIM_INTERVAL_MS=abc`), a API não sobe e
 lista os problemas.
 
-`SIM_BUFFER_MAX` limita o buffer em memória do simulador: se o banco ficar
+`INGEST_BUFFER_MAX` limita o buffer em memória da ingestão: se o banco ficar
 fora do ar, as amostras mais antigas são descartadas (com aviso no log) em
 vez de a memória crescer sem limite.
 
@@ -96,7 +119,6 @@ origem dos dados entre `mqtt`, `modbus`, `opcua`.
 
 ## Próximos passos (Fase 2)
 
-- Trocar/complementar a fonte `sim` por adquisição real via MQTT, Modbus TCP
-  e OPC UA, reaproveitando `MeasurementsService.insertBatch`.
-- Middleware de normalização de payload dos três protocolos para o mesmo
-  formato `Sample`.
+- Fontes reais via MQTT, Modbus TCP e OPC UA: cada uma é um novo
+  `AcquisitionSource` (ver `simulator.source.ts` como modelo), convertendo o
+  payload do protocolo para `SampleInput`.

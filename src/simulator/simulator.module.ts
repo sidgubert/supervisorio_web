@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
-import { MeasurementsModule } from '../measurements/measurements.module';
-import { SimulatorService } from './simulator.service';
+import { IngestionModule } from '../ingestion/ingestion.module';
+import { SimulatorSource } from './simulator.source';
 
 @Module({
-  imports: [MeasurementsModule],
-  providers: [SimulatorService],
+  imports: [IngestionModule],
+  providers: [SimulatorSource],
 })
 export class SimulatorModule {}

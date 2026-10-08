@@ -18,8 +18,8 @@ export interface Env {
   PORT: number;
   SIM_ENABLED: boolean;
   SIM_INTERVAL_MS: number;
-  SIM_BATCH_FLUSH_MS: number;
-  SIM_BUFFER_MAX: number;
+  INGEST_FLUSH_MS: number;
+  INGEST_BUFFER_MAX: number;
 }
 
 /** Variáveis de ambiente cruas (sempre strings, vindas do process.env/.env). */
@@ -63,8 +63,8 @@ export function validateEnv(raw: Raw): Env {
     PORT: int('PORT', 3000, 1, 65535),
     SIM_ENABLED: bool('SIM_ENABLED', true),
     SIM_INTERVAL_MS: int('SIM_INTERVAL_MS', 1000, 10, 3_600_000),
-    SIM_BATCH_FLUSH_MS: int('SIM_BATCH_FLUSH_MS', 2000, 10, 3_600_000),
-    SIM_BUFFER_MAX: int('SIM_BUFFER_MAX', 100_000, 100, 10_000_000),
+    INGEST_FLUSH_MS: int('INGEST_FLUSH_MS', 2000, 10, 3_600_000),
+    INGEST_BUFFER_MAX: int('INGEST_BUFFER_MAX', 100_000, 100, 10_000_000),
   };
 
   if (errors.length > 0) {
