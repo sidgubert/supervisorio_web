@@ -10,6 +10,7 @@ import {
 import { Subscription } from 'rxjs';
 import { Namespace, Socket } from 'socket.io';
 import { errorMessage } from '../common/error-message';
+import { AlarmsService } from '../alarms/alarms.service';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { Sample } from '../ingestion/sample';
 
@@ -30,27 +31,37 @@ export type SubscribeAck =
  *              ack: { ok, tags, last }  last = último valor conhecido de cada tag
  *   cliente -> 'unsubscribe' { tags?: string[] }  (sem tags = todas)
  *   servidor -> 'samples'    Sample[]             (um lote por tag)
+ *   servidor -> 'alarm'      { type, alarm }      (a todos os clientes)
+ *              type: raised | cleared | acknowledged
  *
- * As amostras vêm do IngestionService.samples$, antes de irem para o banco.
+ * As amostras vêm do IngestionService.samples$, antes de irem para o banco;
+ * os alarmes, do AlarmsService.events$.
  */
 @WebSocketGateway({ namespace: '/live', cors: { origin: '*' } })
 export class LiveGateway implements OnGatewayInit, OnModuleDestroy {
   private readonly logger = new Logger(LiveGateway.name);
   /** Último valor de cada tag, para o cliente não começar com o gráfico vazio. */
   private readonly last = new Map<string, Sample>();
-  private subscription?: Subscription;
+  private subscriptions: Subscription[] = [];
 
   @WebSocketServer()
   server!: Namespace;
 
-  constructor(private readonly ingestion: IngestionService) {}
+  constructor(
+    private readonly ingestion: IngestionService,
+    private readonly alarms: AlarmsService,
+  ) {}
 
   afterInit() {
-    this.subscription = this.ingestion.samples$.subscribe((batch) => this.broadcast(batch));
+    this.subscriptions = [
+      this.ingestion.samples$.subscribe((batch) => this.broadcast(batch)),
+      // Alarmes vão para todos os clientes: a lista de alarmes é global.
+      this.alarms.events$.subscribe((event) => this.server.emit('alarm', event)),
+    ];
   }
 
   onModuleDestroy() {
-    this.subscription?.unsubscribe();
+    for (const s of this.subscriptions) s.unsubscribe();
   }
 
   @SubscribeMessage('subscribe')

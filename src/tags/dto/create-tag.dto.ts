@@ -6,6 +6,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  Min,
   ValidateIf,
 } from 'class-validator';
 
@@ -65,6 +66,15 @@ export class CreateTagDto {
   @IsOptional()
   @IsNumber(finite)
   alarmHH?: number | null;
+
+  /**
+   * Banda morta dos alarmes: um alarme alto só normaliza abaixo de
+   * (limite - banda), e um baixo acima de (limite + banda).
+   */
+  @IsOptional()
+  @IsNumber(finite)
+  @Min(0)
+  alarmDeadband?: number | null;
 
   @IsOptional()
   @IsIn(TAG_SOURCES)

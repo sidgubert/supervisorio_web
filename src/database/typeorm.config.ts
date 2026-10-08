@@ -1,5 +1,6 @@
 import { join } from 'path';
 import { DataSourceOptions } from 'typeorm';
+import { Alarm } from '../alarms/alarm.entity';
 import { Env } from '../config/env.validation';
 import { Measurement } from '../measurements/measurement.entity';
 import { Tag } from '../tags/tag.entity';
@@ -20,7 +21,7 @@ export function buildDataSourceOptions(env: DbEnv): DataSourceOptions {
     username: env.DB_USER,
     password: env.DB_PASSWORD,
     database: env.DB_NAME,
-    entities: [Measurement, Tag],
+    entities: [Measurement, Tag, Alarm],
     // .ts no CLI (ts-node), .js na API compilada (dist/).
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
     migrationsTableName: 'migrations',

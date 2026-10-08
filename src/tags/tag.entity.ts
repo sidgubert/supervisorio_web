@@ -33,6 +33,10 @@ export class Tag {
   @Column({ name: 'alarm_hh', type: 'double precision', nullable: true })
   alarmHH!: number | null;
 
+  /** Banda morta (histerese) dos alarmes, na unidade da tag. */
+  @Column({ name: 'alarm_deadband', type: 'double precision', nullable: true })
+  alarmDeadband!: number | null;
+
   /** Fonte de aquisição esperada: sim | mqtt | modbus | opcua */
   @Column({ type: 'text', nullable: true })
   source!: string | null;

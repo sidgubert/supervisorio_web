@@ -2,6 +2,7 @@ import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AlarmsModule } from './alarms/alarms.module';
 import { AppController } from './app.controller';
 import { DatabaseExceptionFilter } from './common/database-exception.filter';
 import { Env, validateEnv } from './config/env.validation';
@@ -45,6 +46,7 @@ import { TagsModule } from './tags/tags.module';
     MeasurementsModule,
     TagsModule,
     IngestionModule,
+    AlarmsModule,
     RealtimeModule,
     SimulatorModule,
     MqttModule,

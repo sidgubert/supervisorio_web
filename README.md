@@ -90,6 +90,7 @@ src/
   measurements/         entidade + service (insert em lote, latest, history)
     history-query.ts    validação de período/resolução do /history
   tags/                 cadastro de tags (unidade, faixa, limites de alarme)
+  alarms/               motor de alarmes (alarm-rules.ts: regras puras)
   ingestion/            núcleo comum a todas as fontes de dados
     acquisition-source.ts  contrato que toda fonte implementa
     ingestion.service.ts   registro/ciclo de vida das fontes + normalização
@@ -290,6 +291,10 @@ vez de a memória crescer sem limite.
 ## Endpoints
 
 - `GET /health` — `200 {status:'ok', db:'up'}` ou `503` se o banco não responder.
+- `GET /alarms` — alarmes abertos (ativos ou não reconhecidos), mais graves
+  primeiro; `GET /alarms/history?from=&to=&tag=&limit=` — histórico (padrão:
+  últimas 24 h, até 200); `POST /alarms/:id/ack` — reconhece um alarme;
+  `POST /alarms/ack-all` — reconhece todos. Detalhes em [Alarmes](#alarmes).
 - `GET /sources` — fontes de aquisição: conectada, tags adquiridas, amostras
   aceitas e descartadas, última amostra.
 - `GET /measurements/:tag/latest?limit=100` — últimas amostras da tag
@@ -315,6 +320,7 @@ vez de a memória crescer sem limite.
     "engMax": 16,
     "alarmL": 2,
     "alarmH": 12,
+    "alarmDeadband": 0.2,
     "source": "mqtt",
     "address": "planta/pt500",
     "enabled": true
@@ -323,7 +329,8 @@ vez de a memória crescer sem limite.
 
   Nome: letras, dígitos e `. _ : -` (ex: `TIC-101.PV`). Limites em ordem
   (`alarmLL ≤ alarmL < alarmH ≤ alarmHH`, todo limite baixo abaixo de todo
-  alto) e `engMin < engMax`. O `address` é conferido no formato da fonte.
+  alto) e `engMin < engMax`. `alarmDeadband` (≥ 0) é a banda morta dos
+  alarmes. O `address` é conferido no formato da fonte.
 
 - `PATCH /tags/:tag` — altera campos (ausente = mantém; `null` = apaga).
 - `DELETE /tags/:tag` — remove do cadastro (`204`); o histórico é mantido.
@@ -346,6 +353,43 @@ socket.on('samples', (samples) => {
   /* [{ time, tag, value, quality, source, receivedAt }, ...] — um lote por tag */
 });
 socket.emit('unsubscribe', { tags: ['TIC-101.PV'] }); // sem tags = todas
+
+// Alarmes chegam a todos os clientes, sem precisar assinar:
+socket.on('alarm', ({ type, alarm }) => {
+  /* type: 'raised' | 'cleared' | 'acknowledged'; alarm: { id, tag, level, state, ... } */
+});
+```
+
+## Alarmes
+
+Cada limite cadastrado na tag (`alarmLL`, `alarmL`, `alarmH`, `alarmHH`) é um
+alarme independente (modelo simplificado da ISA-18.2), avaliado a cada
+amostra que chega, de qualquer fonte:
+
+- **Alto** (H, HH) ativa com valor ≥ limite; **baixo** (L, LL), com
+  valor ≤ limite. Acima de HH, H e HH ficam ativos juntos.
+- Normaliza quando o valor volta além da **banda morta** (`alarmDeadband`):
+  um alarme alto só normaliza abaixo de (limite − banda). Sem isso, um valor
+  oscilando em cima do limite geraria uma rajada de alarmes.
+- Amostras com qualidade Bad não são avaliadas (o valor é o último bom).
+- Um alarme fica **aberto** (em `GET /alarms`) enquanto estiver ativo **ou**
+  não reconhecido. Estados: `ACTIVE_UNACKED`, `ACTIVE_ACKED`,
+  `CLEARED_UNACKED` e, fora da lista, `CLOSED` (normalizado e reconhecido).
+- Remover um limite (ou a tag) normaliza o alarme ativo correspondente.
+
+O estado vive em memória: os alarmes continuam ativando, normalizando e
+podendo ser reconhecidos mesmo com o banco fora do ar. Cada transição vai para
+uma fila de gravação que mantém a ordem e tenta de novo até o banco voltar; os
+ids (UUID) são gerados pela própria API. Na subida, os alarmes abertos são
+recarregados do banco.
+
+Para ver funcionando com o simulador da Fase 1 (vazão entre 95 e 145 m³/h a
+cada 45 s):
+
+```bash
+curl -X PATCH localhost:3000/tags/FIC-301.PV -H 'Content-Type: application/json' \
+  -d '{"alarmH": 130, "alarmDeadband": 2}'
+curl localhost:3000/alarms
 ```
 
 ## Modelo de dados
@@ -376,6 +420,12 @@ cadastradas. Não há FK de `measurements.tag` para `tags`, de propósito: uma
 amostra de tag não cadastrada faria o lote inteiro falhar e travaria o buffer
 de ingestão.
 
+A tabela `alarms` guarda cada ocorrência de alarme (tag, nível, limite,
+valor e horário ao ativar e ao normalizar, horário do reconhecimento). O
+estado sai dos carimbos: ativo = `cleared_at` nulo; reconhecido = `acked_at`
+preenchido. Um índice único parcial garante no máximo uma ocorrência ativa
+por tag e nível.
+
 Duas _continuous aggregates_ (`measurements_1m` e `measurements_1h`) guardam
 `avg/min/max/count` por tag e intervalo, atualizadas por jobs do próprio
 TimescaleDB (a cada 1 min e 30 min). São _real-time aggregates_: a consulta
@@ -400,7 +450,6 @@ migration inicial é idempotente e apenas se registra.
 
 ## Próximos passos
 
-- Alarmes: comparar as amostras de `samples$` com os limites da tabela `tags`.
 - Com taxas de aquisição altas, agrupar/limitar o envio do `LiveGateway`
   (hoje cada lote recebido vira um evento por tag).
 - node-opcua fixado em 2.183.x, a última linha com o pacote principal em

@@ -75,6 +75,13 @@ describe('CreateTagDto', () => {
 });
 
 describe('UpdateTagDto', () => {
+  it('banda morta de alarme não pode ser negativa', async () => {
+    expect(await errorsFor(UpdateTagDto, { alarmDeadband: 0.5 })).toEqual([]);
+    expect(await errorsFor(UpdateTagDto, { alarmDeadband: -1 })).toEqual([
+      'alarmDeadband must not be less than 0',
+    ]);
+  });
+
   it('aceita alteração parcial e null para apagar', async () => {
     expect(await errorsFor(UpdateTagDto, { alarmH: null, unit: 'bar' })).toEqual([]);
   });

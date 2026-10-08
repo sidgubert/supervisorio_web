@@ -4,6 +4,7 @@ import { Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { Sample } from '../ingestion/sample';
+import { AlarmEvent, AlarmsService } from '../alarms/alarms.service';
 import { LiveGateway, SubscribeAck } from './live.gateway';
 
 /**
@@ -14,6 +15,7 @@ describe('LiveGateway (socket.io)', () => {
   let app: INestApplication;
   let url: string;
   const feed = new Subject<Sample[]>();
+  const alarmFeed = new Subject<AlarmEvent>();
   const clients: Socket[] = [];
 
   const sample = (tag: string, value: number): Sample => ({
@@ -51,7 +53,11 @@ describe('LiveGateway (socket.io)', () => {
   beforeAll(async () => {
     Logger.overrideLogger(false);
     const moduleRef = await Test.createTestingModule({
-      providers: [LiveGateway, { provide: IngestionService, useValue: { samples$: feed } }],
+      providers: [
+        LiveGateway,
+        { provide: IngestionService, useValue: { samples$: feed } },
+        { provide: AlarmsService, useValue: { events$: alarmFeed } },
+      ],
     }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.listen(0);
@@ -107,6 +113,22 @@ describe('LiveGateway (socket.io)', () => {
     await send(c, 'unsubscribe', { tags: ['A'] });
     feed.next([sample('A', 1)]);
     expect(await got()).toHaveLength(0);
+  });
+
+  it('envia os eventos de alarme a todos os clientes, mesmo sem assinatura', async () => {
+    const c1 = await connect();
+    const c2 = await connect();
+    await send(c1, 'subscribe', { tags: ['OUTRA'] });
+    const got: AlarmEvent[][] = [[], []];
+    c1.on('alarm', (e: AlarmEvent) => got[0].push(e));
+    c2.on('alarm', (e: AlarmEvent) => got[1].push(e));
+    const event = {
+      type: 'raised',
+      alarm: { id: 'x', tag: 'A', level: 'H', state: 'ACTIVE_UNACKED' },
+    } as unknown as AlarmEvent;
+    alarmFeed.next(event);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(got.map((g) => g.map((e) => e.type))).toEqual([['raised'], ['raised']]);
   });
 
   it.each([[{ tags: 'A' }], [{ tags: [1, 2] }], [{ tags: [''] }], ['texto']])(
