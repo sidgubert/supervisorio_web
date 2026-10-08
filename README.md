@@ -67,8 +67,9 @@ src/
   database/
     typeorm.config.ts   opções do TypeORM (comuns à API e ao CLI)
     data-source.ts      DataSource do CLI de migrations
-    migrations/         schema versionado (hypertable, tags, ...)
-  measurements/         entidade + service (insert em lote, consulta)
+    migrations/         schema versionado (hypertable, tags, agregações)
+  measurements/         entidade + service (insert em lote, latest, history)
+    history-query.ts    validação de período/resolução do /history
   tags/                 cadastro de tags (unidade, faixa, limites de alarme)
   ingestion/            núcleo comum a todas as fontes de dados
     acquisition-source.ts  contrato que toda fonte implementa
@@ -78,6 +79,8 @@ src/
   simulator/
     signal.ts           geração de senoides (lógica pura, testável)
     simulator.source.ts fonte "sim": emite as senoides a cada SIM_INTERVAL_MS
+  realtime/
+    live.gateway.ts     WebSocket (socket.io /live) para o dashboard
 ```
 
 ## Arquitetura de ingestão
@@ -86,7 +89,8 @@ src/
 SimulatorSource ─┐
 (MqttSource)    ─┼─ emit(SampleInput[]) ─► IngestionService ─► IngestionBuffer ─► MeasurementsService ─► TimescaleDB
 (ModbusSource)  ─┤                         normaliza + valida   limitado, 1 flush   insert em blocos
-(OpcUaSource)   ─┘                                              por vez             numa transação
+(OpcUaSource)   ─┘           │                                  por vez             numa transação
+                              └─► samples$ ─► LiveGateway ─► dashboard (socket.io /live)
 ```
 
 - Uma fonte implementa `AcquisitionSource` (`name`, `start(emit)`, `stop()`)
@@ -97,6 +101,8 @@ SimulatorSource ─┐
   NaN/Infinity, data inválida).
 - Na subida, as fontes são iniciadas; uma que falhe não derruba as outras. No
   encerramento, as fontes param **antes** de o buffer ser esvaziado no banco.
+- As amostras válidas também saem em `samples$` assim que chegam, antes do
+  banco: o tempo real continua funcionando mesmo com o banco fora do ar.
 
 ## Configuração
 
@@ -114,7 +120,34 @@ vez de a memória crescer sem limite.
 - `GET /measurements/:tag/latest?limit=100` — últimas amostras da tag
   (`limit` entre 1 e 5000).
 - `GET /tags` — tags cadastradas.
+- `GET /measurements/:tag/history?from=&to=&bucket=` — série para gráficos.
+  `from`/`to` em ISO 8601 (padrão: última hora). `bucket`:
+  - `auto` (padrão): escolhe pela duração — até 30 min `raw`, até 36 h `1m`,
+    acima disso `1h` (gráficos com no máximo ~2 mil pontos);
+  - `raw` (máx 6 h), `1m` (máx 7 dias), `1h` (máx 400 dias).
+
+  Resposta: `{ tag, bucket, from, to, points: [{ time, avg, min, max, count }] }`
+  (no `raw`, `avg = min = max = value` e `count = 1`).
+
+- `GET /tags` — tags cadastradas.
 - `GET /tags/:tag` — uma tag (`404` se não cadastrada).
+
+## Tempo real (WebSocket)
+
+socket.io no namespace `/live`:
+
+```js
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:3000/live');
+// sem `tags` (ou lista vazia) = todas as tags
+const ack = await socket.emitWithAck('subscribe', { tags: ['TIC-101.PV'] });
+// ack = { ok: true, tags: [...], last: [último valor conhecido de cada tag] }
+socket.on('samples', (samples) => {
+  /* [{ time, tag, value, quality, source }, ...] — um lote por tag */
+});
+socket.emit('unsubscribe', { tags: ['TIC-101.PV'] }); // sem tags = todas
+```
 
 ## Modelo de dados
 
@@ -132,6 +165,13 @@ onde ela é adquirida (`source`/`address`). As tags do simulador já vêm
 cadastradas. Não há FK de `measurements.tag` para `tags`, de propósito: uma
 amostra de tag não cadastrada faria o lote inteiro falhar e travaria o buffer
 de ingestão.
+
+Duas _continuous aggregates_ (`measurements_1m` e `measurements_1h`) guardam
+`avg/min/max/count` por tag e intervalo, atualizadas por jobs do próprio
+TimescaleDB (a cada 1 min e 30 min). São _real-time aggregates_: a consulta
+completa o trecho ainda não materializado com os dados brutos, então nunca
+ficam defasadas. A janela de reprocessamento (1 e 7 dias) cobre amostras que
+chegam atrasadas, como as regravadas pelo buffer após uma queda do banco.
 
 ## Migrations
 
@@ -153,3 +193,7 @@ migration inicial é idempotente e apenas se registra.
 - Fontes reais via MQTT, Modbus TCP e OPC UA: cada uma é um novo
   `AcquisitionSource` (ver `simulator.source.ts` como modelo), convertendo o
   payload do protocolo para `SampleInput`.
+- Alarmes: comparar as amostras de `samples$` com os limites da tabela `tags`.
+- Com taxas de aquisição altas, agrupar/limitar o envio do `LiveGateway`
+  (hoje cada lote recebido vira um evento por tag).
+- Políticas de compressão e retenção do TimescaleDB para o histórico bruto.

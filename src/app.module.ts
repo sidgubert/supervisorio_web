@@ -6,6 +6,7 @@ import { Env, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeorm.config';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { MeasurementsModule } from './measurements/measurements.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { SimulatorModule } from './simulator/simulator.module';
 import { TagsModule } from './tags/tags.module';
 
@@ -31,6 +32,7 @@ import { TagsModule } from './tags/tags.module';
     MeasurementsModule,
     TagsModule,
     IngestionModule,
+    RealtimeModule,
     SimulatorModule,
   ],
 })

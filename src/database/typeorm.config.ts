@@ -24,6 +24,9 @@ export function buildDataSourceOptions(env: DbEnv): DataSourceOptions {
     // .ts no CLI (ts-node), .js na API compilada (dist/).
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
     migrationsTableName: 'migrations',
+    // Uma transação por migration, e não uma para todas: permite que uma
+    // migration declare `transaction = false` (ex: continuous aggregates).
+    migrationsTransactionMode: 'each',
     // O schema é versionado pelas migrations, nunca gerado pelo TypeORM
     // (que, entre outras coisas, não sabe criar hypertables).
     synchronize: false,

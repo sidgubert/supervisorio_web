@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { Observable, Subject } from 'rxjs';
 import { errorMessage } from '../common/error-message';
 import { AcquisitionSource } from './acquisition-source';
 import { IngestionBuffer } from './ingestion-buffer';
@@ -8,6 +9,7 @@ import { QUALITY_GOOD, Sample, SampleInput } from './sample';
  * Núcleo de ingestão: ponto único por onde todas as fontes entregam dados.
  *
  *   fonte.start(emit) -> ingest() [normaliza + valida] -> IngestionBuffer -> banco
+ *                                                       -> samples$ (tempo real)
  *
  * Ciclo de vida:
  * - as fontes se registram no onModuleInit delas (register);
@@ -20,6 +22,13 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
   private readonly logger = new Logger(IngestionService.name);
   private readonly sources = new Map<string, AcquisitionSource>();
   private started = false;
+  private readonly live = new Subject<Sample[]>();
+
+  /**
+   * Amostras válidas assim que chegam, antes de irem para o banco: o tempo
+   * real (WebSocket) não depende do banco estar no ar.
+   */
+  readonly samples$: Observable<Sample[]> = this.live.asObservable();
 
   constructor(private readonly buffer: IngestionBuffer) {}
 
@@ -57,6 +66,7 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
       }
     }
     await this.buffer.stop();
+    this.live.complete();
   }
 
   /** Normaliza e valida as amostras de uma fonte e as enfileira para gravação. */
@@ -77,6 +87,7 @@ export class IngestionService implements OnApplicationBootstrap, OnModuleDestroy
       this.logger.warn(`Fonte "${sourceName}": ${rejected} amostra(s) inválida(s) descartada(s).`);
     }
     this.buffer.push(valid);
+    if (valid.length > 0) this.live.next(valid);
   }
 }
 

@@ -106,4 +106,26 @@ describe('IngestionService', () => {
     ]);
     expect(pushed.map((s) => s.tag)).toEqual(['ok']);
   });
+
+  it('publica em samples$ só as amostras válidas, e nada se o lote for todo inválido', () => {
+    const { service } = setup();
+    const received: Sample[][] = [];
+    service.samples$.subscribe((b) => received.push(b));
+    const t = new Date(0);
+    service.ingest('x', [
+      { time: t, tag: 'ok', value: 1 },
+      { time: t, tag: 'nan', value: NaN },
+    ]);
+    service.ingest('x', [{ time: t, tag: 'nan', value: NaN }]);
+    expect(received).toHaveLength(1);
+    expect(received[0].map((s) => s.tag)).toEqual(['ok']);
+  });
+
+  it('completa samples$ no encerramento', async () => {
+    const { service } = setup();
+    const complete = jest.fn();
+    service.samples$.subscribe({ complete });
+    await service.onModuleDestroy();
+    expect(complete).toHaveBeenCalled();
+  });
 });

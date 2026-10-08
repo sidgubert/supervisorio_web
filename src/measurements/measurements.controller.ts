@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Query,
 } from '@nestjs/common';
+import { HistoryQueryError, parseHistoryQuery } from './history-query';
 import { MeasurementsService } from './measurements.service';
 
 /** Teto de amostras por consulta, para proteger o banco e a API. */
@@ -26,5 +27,27 @@ export class MeasurementsController {
       throw new BadRequestException(`limit deve estar entre 1 e ${MAX_LIMIT}`);
     }
     return this.measurements.latest(tag, limit);
+  }
+
+  /**
+   * Série histórica para gráficos: ?from=&to= (ISO 8601; padrão: última hora)
+   * e ?bucket=auto|raw|1m|1h (padrão auto: escolhe a resolução pelo período).
+   */
+  @Get(':tag/history')
+  async history(
+    @Param('tag') tag: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('bucket') bucket?: string,
+  ) {
+    let q;
+    try {
+      q = parseHistoryQuery({ from, to, bucket }, new Date());
+    } catch (err) {
+      if (err instanceof HistoryQueryError) throw new BadRequestException(err.message);
+      throw err;
+    }
+    const points = await this.measurements.history(tag, q);
+    return { tag, bucket: q.bucket, from: q.from, to: q.to, points };
   }
 }
