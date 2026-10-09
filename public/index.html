@@ -54,8 +54,22 @@
     <main id="view-synoptic" class="view synoptic-view" hidden>
       <div class="panel-head">
         <h2>Sinótico do processo</h2>
-        <span class="muted">Posição e desenho de cada tag em Configuração</span>
+        <div class="synoptic-actions">
+          <span
+            id="synoptic-status"
+            class="synoptic-status"
+            role="status"
+            aria-live="polite"
+          ></span>
+          <button id="synoptic-edit" class="btn btn--ghost" type="button" aria-pressed="false">
+            Editar posições
+          </button>
+        </div>
       </div>
+      <p class="muted synoptic-hint">
+        O desenho de cada tag é escolhido em Configuração; a posição, arrastando o instrumento em
+        "Editar posições".
+      </p>
       <div class="synoptic-wrap">
         <svg id="synoptic-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
       </div>

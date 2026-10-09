@@ -140,13 +140,13 @@ Servido pela própria API, sem build: HTML, CSS e JavaScript (módulos ES) em
 `public/`, e o Chart.js servido de `node_modules`, para funcionar sem
 internet.
 
-| Tela                     | O que mostra                                                                                                         |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| **Gráficos**             | Um gráfico por tag (últimos 15 min, atualizado ao vivo) e os alarmes abertos, com reconhecimento um a um ou de todos |
-| **Sinótico**             | Desenho do processo com os valores ao vivo; instrumentos em alarme ficam destacados                                  |
-| **Histórico de alarmes** | Últimas 24 h: quando cada alarme ativou, normalizou e quem reconheceu                                                |
-| **Métricas**             | Ingestão por fonte, armazenamento e compressão, comparação dos protocolos e exportação CSV                           |
-| **Configuração**         | Faixa, limites de alarme, banda morta e posição no sinótico de cada tag                                              |
+| Tela                     | O que mostra                                                                                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Gráficos**             | Um gráfico por tag (últimos 15 min, atualizado ao vivo) e os alarmes abertos, com reconhecimento um a um ou de todos                                                      |
+| **Sinótico**             | Desenho do processo com os valores ao vivo; instrumentos em alarme ficam destacados. Em "Editar posições", os instrumentos podem ser arrastados (ou movidos com as setas) |
+| **Histórico de alarmes** | Últimas 24 h: quando cada alarme ativou, normalizou e quem reconheceu                                                                                                     |
+| **Métricas**             | Ingestão por fonte, armazenamento e compressão, comparação dos protocolos e exportação CSV                                                                                |
+| **Configuração**         | Faixa, limites de alarme, banda morta e posição no sinótico de cada tag                                                                                                   |
 
 O tempo real chega por SSE (`/api/dashboard/stream`); se a conexão cair, o
 navegador reconecta sozinho. Com o login ligado
@@ -336,7 +336,9 @@ curl -X POST localhost:3000/api/tags -H 'Content-Type: application/json' -d '{
   abaixo de todo alto) e `engMin < engMax`. `alarmDeadband` (≥ 0) é a banda
   morta dos alarmes.
 - `synopticKind` (`tank`, `pressure`, `flow`, `level` ou `sensor`) e
-  `synopticX`/`synopticY` (0 a 100, em % da tela) põem a tag no sinótico.
+  `synopticX`/`synopticY` (0 a 100, em % da tela) põem a tag no sinótico. A
+  posição também pode ser ajustada arrastando o instrumento na própria tela do
+  sinótico, no modo "Editar posições" (grava ao soltar, pelo mesmo `PATCH`).
 - O `address` é conferido no formato da fonte (tópico MQTT, endereço Modbus,
   NodeId): um endereço errado é recusado já no cadastro.
 - `PATCH /api/tags/:tag` altera campos (ausente = mantém; `null` = apaga).

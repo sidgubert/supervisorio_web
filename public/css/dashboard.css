@@ -119,10 +119,74 @@ body {
   height: auto;
   min-height: 420px;
   display: block;
+  user-select: none; /* arrastar sobre o desenho não seleciona os textos */
 }
 
 .syn-node {
   cursor: pointer;
+}
+
+/* Edição de posições no sinótico */
+.synoptic-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.synoptic-status {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.synoptic-status.ok {
+  color: var(--ok);
+}
+.synoptic-status.err {
+  color: var(--alarm);
+}
+.synoptic-hint {
+  margin: -0.5rem 0 0.75rem;
+  text-align: center;
+}
+#synoptic-edit[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.syn-grid {
+  display: none;
+}
+.syn-grid line {
+  stroke: var(--border);
+  stroke-width: 0.15;
+}
+#synoptic-svg.synoptic--editing {
+  touch-action: none; /* o arraste não rola a página no toque */
+}
+.synoptic--editing .syn-grid {
+  display: inline;
+}
+.synoptic--editing .syn-node {
+  cursor: grab;
+}
+.syn-node:focus {
+  outline: none;
+}
+/* Moldura do instrumento em foco ou sendo arrastado. Um outline em SVG
+   teria espessura mínima aplicada antes da escala do desenho (fica grosso);
+   com non-scaling-stroke, o traço tem a mesma espessura em qualquer tela. */
+.syn-frame {
+  display: none;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+.synoptic--editing .syn-node:focus-visible .syn-frame,
+.synoptic--editing .syn-node--dragging .syn-frame {
+  display: inline;
+}
+.synoptic--editing .syn-node--dragging {
+  cursor: grabbing;
+  opacity: 0.85;
 }
 .syn-node--alarm rect,
 .syn-node--alarm circle,
