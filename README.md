@@ -1,5 +1,7 @@
 # TALOS
 
+[![CI](https://github.com/sidgubert/supervisorio_web/actions/workflows/ci.yml/badge.svg)](https://github.com/sidgubert/supervisorio_web/actions/workflows/ci.yml)
+
 Sistema supervisório web (SCADA) para a Indústria 4.0: adquire variáveis de
 processo por MQTT, Modbus TCP e OPC UA, guarda o histórico num banco de séries
 temporais, avalia alarmes e mostra tudo em tempo real num dashboard web.
@@ -37,9 +39,11 @@ O projeto foi construído em cinco fases, todas concluídas:
 - [Docker](#docker)
 - [Migrations](#migrations)
 - [Testes e qualidade de código](#testes-e-qualidade-de-código)
+- [Experimentos](#experimentos)
 - [Estrutura do código](#estrutura-do-código)
 - [CommonJS, ESM e o node-opcua](#commonjs-esm-e-o-node-opcua)
 - [Próximos passos](#próximos-passos)
+- [Licença](#licença)
 
 ## Visão geral
 
@@ -117,13 +121,15 @@ curl localhost:3000/api/sources
 curl localhost:3000/api/measurements/TIC-101.PV/latest?limit=5
 ```
 
-Para experimentar as outras fontes sem equipamento real, há simuladores:
+Para experimentar as outras fontes sem equipamento real, há simuladores. Suba
+todos de uma vez em containers com
+`docker compose --profile simulators up -d --build`, ou cada um num terminal:
 
-| Para testar | Rode (em outro terminal)          | E ligue no `.env`                                               |
-| ----------- | --------------------------------- | --------------------------------------------------------------- |
-| MQTT        | já sobe com o `docker compose`    | `MQTT_ENABLED=true` (padrão no `.env.example`)                  |
-| Modbus TCP  | `npm run sim:modbus` (porta 5020) | `MODBUS_ENABLED=true`, `MODBUS_PORT=5020`                       |
-| OPC UA      | `npm run sim:opcua` (porta 4840)  | `OPCUA_ENABLED=true`, `OPCUA_ENDPOINT=opc.tcp://localhost:4840` |
+| Para testar | Rode (em outro terminal)                         | E ligue no `.env`                                               |
+| ----------- | ------------------------------------------------ | --------------------------------------------------------------- |
+| MQTT        | `npm run sim:mqtt` (o broker sobe com o compose) | `MQTT_ENABLED=true` (padrão no `.env.example`)                  |
+| Modbus TCP  | `npm run sim:modbus` (porta 5020)                | `MODBUS_ENABLED=true`, `MODBUS_PORT=5020`                       |
+| OPC UA      | `npm run sim:opcua` (porta 4840)                 | `OPCUA_ENABLED=true`, `OPCUA_ENDPOINT=opc.tcp://localhost:4840` |
 
 Em seguida, cadastre tags para essas fontes (exemplos em cada seção abaixo).
 Para rodar a API também em container, veja [Docker](#docker).
@@ -162,7 +168,7 @@ fonte na hora, sem reiniciar. Em comum, todas:
 
 | Fonte    | Liga com              | `address` da tag                                  |
 | -------- | --------------------- | ------------------------------------------------- |
-| `sim`    | `SIM_ENABLED=true`    | — (gera as 4 tags de exemplo)                     |
+| `sim`    | `SIM_ENABLED=true`    | — (gera `SIM_TAGS` tags; padrão, as 4 de exemplo) |
 | `mqtt`   | `MQTT_ENABLED=true`   | tópico exato, sem `+` ou `#`                      |
 | `modbus` | `MODBUS_ENABLED=true` | `hr:0`, `ir:10?type=int16&scale=0.1`, `coil:3`... |
 | `opcua`  | `OPCUA_ENABLED=true`  | NodeId: `ns=3;s=SlowUInt1`, `ns=2;i=1001`         |
@@ -275,14 +281,24 @@ o NodeId: `ns=<n>;s=<texto>`, `ns=<n>;i=<número>`, `i=<número>` (namespace 0),
   `GET /api/sources`; as demais tags seguem normalmente.
 - Ao reconectar, o node-opcua restaura sessão e assinaturas. Uma queda de
   conexão marca as tags monitoradas como Bad uma vez.
-- Segurança: SecurityMode None e acesso anônimo, adequado a laboratório. O
-  certificado do cliente fica em `OPCUA_PKI_DIR` (padrão `.opcua-pki/`, fora
-  do git); ao ligar segurança num servidor real, é o certificado de
-  `own/certs` que o servidor precisa confiar.
+- Segurança (`OPCUA_SECURITY_MODE`): `none` (padrão, laboratório), `sign`
+  (mensagens assinadas: ninguém as altera no caminho) ou `sign_and_encrypt`
+  (também cifradas: ninguém as lê no caminho), com os algoritmos de
+  `OPCUA_SECURITY_POLICY` (padrão `Basic256Sha256`). O acesso é sempre
+  anônimo.
+- Com segurança, cliente e servidor trocam certificados. Os do TALOS ficam em
+  `OPCUA_PKI_DIR` (padrão `.opcua-pki/`, fora do git): o servidor precisa
+  confiar no certificado do cliente, que fica em `own/certs`.
+- Para o cliente confiar no servidor: com `OPCUA_TRUST_UNKNOWN_CERTS=true`
+  (padrão, laboratório) aceita qualquer certificado, o que cifra a conexão mas
+  não confirma com quem se fala. Com `false`, um certificado desconhecido vai
+  para `rejected/` e a conexão é recusada; para confiar, mova o arquivo para
+  `trusted/certs`. A fonte tenta de novo a cada 10 s, sem reiniciar a API.
 - O node-opcua (cerca de 1 s para carregar) só é importado com
   `OPCUA_ENABLED=true`.
 
-Com o simulador (`npm run sim:opcua`; variáveis em `tools/opcua-sim.ts`),
+Com o simulador (`npm run sim:opcua`; variáveis em `tools/opcua-sim.ts`; aceita
+None, Sign e SignAndEncrypt),
 cadastre por exemplo
 `{"tag":"TT-201.PV","unit":"°C","source":"opcua","address":"ns=1;s=Reator.Temperatura"}`.
 No simulador, `ns=1;s=Sensor.Instavel` entra em falha (Bad) por 10 s a cada
@@ -557,41 +573,45 @@ Todas as variáveis estão em `.env.example`. Elas são validadas na subida: se
 alguma estiver inválida (ex: `SIM_INTERVAL_MS=abc`), a API não sobe e lista os
 problemas.
 
-| Variável                   | Padrão                     | Descrição                                                         |
-| -------------------------- | -------------------------- | ----------------------------------------------------------------- |
-| `DB_HOST`                  | `localhost`                | Host do banco                                                     |
-| `DB_PORT`                  | `5432`                     | Porta do banco (o `.env.example` usa 5433, a do `docker compose`) |
-| `DB_USER`                  | `scada`                    | Usuário                                                           |
-| `DB_PASSWORD`              | `scada`                    | Senha                                                             |
-| `DB_NAME`                  | `scada`                    | Nome do banco                                                     |
-| `DB_MIGRATIONS_RUN`        | `true`                     | Aplica as migrations pendentes na subida                          |
-| `PORT`                     | `3000`                     | Porta da API                                                      |
-| `INGEST_FLUSH_MS`          | `2000`                     | Intervalo de gravação do buffer de ingestão                       |
-| `INGEST_BUFFER_MAX`        | `100000`                   | Teto do buffer (banco fora: descarta as amostras mais antigas)    |
-| `LIVE_FLUSH_MS`            | `200`                      | Janela de agrupamento do tempo real (0 = imediato)                |
-| `LIVE_MAX_SAMPLES_PER_TAG` | `100`                      | Máximo de amostras por tag em cada envio do tempo real            |
-| `ALARM_HYSTERESIS_PCT`     | `2`                        | Banda morta padrão (% do limite), para tag sem `alarmDeadband`    |
-| `RETENTION_ENABLED`        | `false`                    | Apaga medições antigas (política de retenção do TimescaleDB)      |
-| `RETENTION_DAYS`           | `90`                       | Prazo da retenção, em dias (mínimo 8)                             |
-| `AUTH_ENABLED`             | `false`                    | Liga o login                                                      |
-| `AUTH_USER`                | `operador`                 | Usuário                                                           |
-| `AUTH_PASSWORD`            | vazio                      | Senha (obrigatória com o login ligado)                            |
-| `AUTH_SECRET`              | vazio                      | Segredo que assina os tokens (32+ caracteres aleatórios)          |
-| `SIM_ENABLED`              | `true`                     | Liga o simulador de senoides                                      |
-| `SIM_INTERVAL_MS`          | `1000`                     | Intervalo do simulador                                            |
-| `MQTT_ENABLED`             | `false`                    | Liga a fonte MQTT (`true` no `.env.example`)                      |
-| `MQTT_URL`                 | `mqtt://localhost:1883`    | Broker (`mqtt`, `mqtts`, `tcp`, `ws` ou `wss`)                    |
-| `MQTT_USERNAME`            | vazio                      | Usuário do broker (vazio = sem autenticação)                      |
-| `MQTT_PASSWORD`            | vazio                      | Senha do broker                                                   |
-| `MODBUS_ENABLED`           | `false`                    | Liga a fonte Modbus TCP                                           |
-| `MODBUS_HOST`              | `localhost`                | Equipamento Modbus                                                |
-| `MODBUS_PORT`              | `502`                      | Porta (o simulador usa 5020)                                      |
-| `MODBUS_POLL_MS`           | `1000`                     | Intervalo entre ciclos de leitura                                 |
-| `MODBUS_TIMEOUT_MS`        | `2000`                     | Timeout de cada request                                           |
-| `OPCUA_ENABLED`            | `false`                    | Liga a fonte OPC UA                                               |
-| `OPCUA_ENDPOINT`           | `opc.tcp://localhost:4840` | Servidor OPC UA                                                   |
-| `OPCUA_SAMPLING_MS`        | `1000`                     | Amostragem e intervalo de publicação da assinatura                |
-| `OPCUA_PKI_DIR`            | `.opcua-pki`               | Pasta dos certificados do cliente OPC UA                          |
+| Variável                    | Padrão                     | Descrição                                                         |
+| --------------------------- | -------------------------- | ----------------------------------------------------------------- |
+| `DB_HOST`                   | `localhost`                | Host do banco                                                     |
+| `DB_PORT`                   | `5432`                     | Porta do banco (o `.env.example` usa 5433, a do `docker compose`) |
+| `DB_USER`                   | `scada`                    | Usuário                                                           |
+| `DB_PASSWORD`               | `scada`                    | Senha                                                             |
+| `DB_NAME`                   | `scada`                    | Nome do banco                                                     |
+| `DB_MIGRATIONS_RUN`         | `true`                     | Aplica as migrations pendentes na subida                          |
+| `PORT`                      | `3000`                     | Porta da API                                                      |
+| `INGEST_FLUSH_MS`           | `2000`                     | Intervalo de gravação do buffer de ingestão                       |
+| `INGEST_BUFFER_MAX`         | `100000`                   | Teto do buffer (banco fora: descarta as amostras mais antigas)    |
+| `LIVE_FLUSH_MS`             | `200`                      | Janela de agrupamento do tempo real (0 = imediato)                |
+| `LIVE_MAX_SAMPLES_PER_TAG`  | `100`                      | Máximo de amostras por tag em cada envio do tempo real            |
+| `ALARM_HYSTERESIS_PCT`      | `2`                        | Banda morta padrão (% do limite), para tag sem `alarmDeadband`    |
+| `RETENTION_ENABLED`         | `false`                    | Apaga medições antigas (política de retenção do TimescaleDB)      |
+| `RETENTION_DAYS`            | `90`                       | Prazo da retenção, em dias (mínimo 8)                             |
+| `AUTH_ENABLED`              | `false`                    | Liga o login                                                      |
+| `AUTH_USER`                 | `operador`                 | Usuário                                                           |
+| `AUTH_PASSWORD`             | vazio                      | Senha (obrigatória com o login ligado)                            |
+| `AUTH_SECRET`               | vazio                      | Segredo que assina os tokens (32+ caracteres aleatórios)          |
+| `SIM_ENABLED`               | `true`                     | Liga o simulador de senoides                                      |
+| `SIM_INTERVAL_MS`           | `1000`                     | Intervalo do simulador                                            |
+| `SIM_TAGS`                  | `4`                        | Tags do simulador (acima de 4, geradas para teste de carga)       |
+| `MQTT_ENABLED`              | `false`                    | Liga a fonte MQTT (`true` no `.env.example`)                      |
+| `MQTT_URL`                  | `mqtt://localhost:1883`    | Broker (`mqtt`, `mqtts`, `tcp`, `ws` ou `wss`)                    |
+| `MQTT_USERNAME`             | vazio                      | Usuário do broker (vazio = sem autenticação)                      |
+| `MQTT_PASSWORD`             | vazio                      | Senha do broker                                                   |
+| `MODBUS_ENABLED`            | `false`                    | Liga a fonte Modbus TCP                                           |
+| `MODBUS_HOST`               | `localhost`                | Equipamento Modbus                                                |
+| `MODBUS_PORT`               | `502`                      | Porta (o simulador usa 5020)                                      |
+| `MODBUS_POLL_MS`            | `1000`                     | Intervalo entre ciclos de leitura                                 |
+| `MODBUS_TIMEOUT_MS`         | `2000`                     | Timeout de cada request                                           |
+| `OPCUA_ENABLED`             | `false`                    | Liga a fonte OPC UA                                               |
+| `OPCUA_ENDPOINT`            | `opc.tcp://localhost:4840` | Servidor OPC UA                                                   |
+| `OPCUA_SAMPLING_MS`         | `1000`                     | Amostragem e intervalo de publicação da assinatura                |
+| `OPCUA_PKI_DIR`             | `.opcua-pki`               | Pasta dos certificados do cliente OPC UA                          |
+| `OPCUA_SECURITY_MODE`       | `none`                     | `none`, `sign` ou `sign_and_encrypt`                              |
+| `OPCUA_SECURITY_POLICY`     | `Basic256Sha256`           | Algoritmos da conexão segura                                      |
+| `OPCUA_TRUST_UNKNOWN_CERTS` | `true`                     | Aceita certificado de servidor desconhecido                       |
 
 ## Docker
 
@@ -608,6 +628,9 @@ docker compose --profile app up -d --build
   nomes da rede do Docker. Simuladores rodando no PC ficam em
   `host.docker.internal` (ex: `MODBUS_HOST=host.docker.internal`).
 - Os certificados do cliente OPC UA ficam no volume `opcua_pki`.
+- O perfil `simulators` sobe os simuladores Modbus (porta 5020), OPC UA
+  (4840) e MQTT (publica em `talos/sim/001`...). Da API em container, use
+  `MODBUS_HOST=modbus-sim` e `OPCUA_ENDPOINT=opc.tcp://opcua-sim:4840`.
 - Pare o `npm run start:dev` antes: os dois usam a porta 3000.
 
 ## Migrations
@@ -637,7 +660,45 @@ npm run format      # formata com Prettier
 As fontes são testadas contra servidores reais em memória, sem Docker: um
 broker MQTT (aedes), um servidor Modbus TCP (`ServerTCP` do modbus-serial) e
 um servidor OPC UA (node-opcua-server), inclusive com o servidor fora do ar na
-subida e caindo no meio da operação.
+subida, caindo no meio da operação e, no OPC UA, com conexão cifrada e
+certificado não confiável. O GitHub Actions roda tudo isso a cada push
+(`.github/workflows/ci.yml`).
+
+## Experimentos
+
+Ferramentas para medir o sistema e reproduzir os resultados do trabalho (os
+números obtidos estão em [docs/experimentos.md](docs/experimentos.md)):
+
+| Comando                      | O que mede                                                              |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `npm run bench:insert`       | Gravação em lote x linha a linha, e a latência de um lote por tamanho   |
+| `npm run bench:alarms`       | Ativações e _chattering_ dos alarmes com e sem banda morta (sem banco)  |
+| `npm run bench:sse`          | Latência do tempo real, da medição até a chegada no cliente SSE         |
+| `npm run report:acquisition` | Amostras, taxa e latência de aquisição por fonte (`received_at − time`) |
+| `npm run sim:verify`         | Confere cada valor gravado pelo simulador e procura amostras perdidas   |
+
+Com `SIM_TAGS` e `SIM_INTERVAL_MS` o simulador vira gerador de carga (ex:
+1.000 tags a cada 100 ms = 10 mil amostras/s). O ruído do sinal é
+determinístico (depende só da tag e do instante), então cada amostra gravada
+pode ser recalculada e conferida pelo `sim:verify`.
+
+Principais resultados, numa única máquina (Core i7-10750H, 32 GB, Windows 11):
+
+- **Gravação:** em lotes de 1.000, 24 mil linhas/s, 32 vezes a gravação linha
+  a linha; um lote de 10 a 20 amostras leva cerca de 2,5 ms.
+- **Ingestão:** o teste de carga encontrou um teto de 5 mil amostras/s no
+  buffer (um lote por ciclo de gravação), já corrigido; a nova medição sob
+  carga está pendente.
+- **Aquisição:** MQTT em 2 ms (mediana); OPC UA em cerca de 650 ms, o
+  intervalo de publicação da assinatura, sem diferença perceptível com
+  SignAndEncrypt.
+- **Tempo real:** da medição ao navegador em 1 a 4 ms sem agrupamento, e em
+  cerca de 200 ms com o padrão (`LIVE_FLUSH_MS=200`).
+- **Alarmes:** amostrando a 100 ms, sem banda morta, 960 episódios de
+  _chattering_ em 24 h; com a banda padrão de 2%, nenhum.
+- **Resiliência:** banco fora do ar por 60 s, nenhuma amostra perdida ou
+  alterada (14.800 conferidas).
+- **Compressão:** 203 MiB viraram 20 MiB (90% de economia).
 
 ## Estrutura do código
 
@@ -650,9 +711,17 @@ public/                   dashboard (sem build)
   css/dashboard.css
   js/                     um módulo por tela (dashboard, synoptic, alarms-history,
                           metrics, config), login e acesso à API (auth.js)
+.github/workflows/ci.yml  integração contínua (formatação, lint, build, testes, imagens)
+docs/experimentos.md      roteiro e resultados dos experimentos
 tools/
   modbus-sim.ts           simulador de CLP Modbus TCP (npm run sim:modbus)
   opcua-sim.ts            simulador de servidor OPC UA (npm run sim:opcua)
+  mqtt-sim.ts             simulador de dispositivos MQTT (npm run sim:mqtt)
+  bench-insert.ts         benchmark de gravação (npm run bench:insert)
+  alarm-flapping.ts       banda morta x chattering (npm run bench:alarms)
+  sse-latency.ts          latência do tempo real (npm run bench:sse)
+  acquisition-report.ts   latência de aquisição por fonte (npm run report:acquisition)
+  sim-verify.ts           conferência dos dados do simulador (npm run sim:verify)
 jest.esm-transformer.cjs  converte dependências só-ESM para o Jest
 src/
   main.ts                 bootstrap: prefixo /api, dashboard estático, CORS, shutdown hooks
@@ -729,3 +798,7 @@ que só se justifica se outras dependências passarem a exigir.
   a API fala HTTP puro. Fora do laboratório: restringir as origens e pôr um
   proxy com HTTPS na frente.
 - **Atualizar o node-opcua** para a linha 2.184+, conforme a seção anterior.
+
+## Licença
+
+[MIT](LICENSE).
