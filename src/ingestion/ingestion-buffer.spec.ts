@@ -99,13 +99,38 @@ describe('IngestionBuffer', () => {
     expect(db.calls).toBe(1);
   });
 
-  it('grava no máximo maxPerFlush amostras por ciclo', async () => {
+  it('com acúmulo, grava vários lotes seguidos de até maxPerInsert', async () => {
     const { buffer, db } = makeBuffer();
-    buffer.maxPerFlush = 5;
-    buffer.push(samples(8));
+    buffer.maxPerInsert = 5;
+    buffer.push(samples(12));
     await buffer.flush();
-    expect(db.saved).toHaveLength(5);
+    expect(db.insertBatch.mock.calls.map((c) => c[0].length)).toEqual([5, 5, 2]);
+    expect(db.saved.map((s) => s.time.getTime())).toEqual(Array.from({ length: 12 }, (_, i) => i));
+    expect(buffer.pending).toBe(0);
+  });
+
+  it('o que chega durante a gravação fica para o próximo ciclo', async () => {
+    const { buffer, db } = makeBuffer();
+    buffer.maxPerInsert = 5;
+    buffer.push(samples(10));
+    db.insertBatch.mockImplementationOnce(async (rows: Sample[]) => {
+      buffer.push(samples(3, 100)); // chegam durante o primeiro INSERT
+      db.saved.push(...rows);
+      return Promise.resolve(rows.length);
+    });
+    await buffer.flush();
+    expect(db.saved).toHaveLength(10);
     expect(buffer.pending).toBe(3);
+  });
+
+  it('com acúmulo e o banco fora, para na primeira falha', async () => {
+    const { buffer, db } = makeBuffer();
+    buffer.maxPerInsert = 5;
+    db.down = true;
+    buffer.push(samples(12));
+    await buffer.flush();
+    expect(db.calls).toBe(1);
+    expect(buffer.pending).toBe(12);
   });
 
   it('aceita lotes grandes sem estourar a pilha', () => {
@@ -127,7 +152,7 @@ describe('IngestionBuffer', () => {
 
   it('stop esvazia o buffer em vários ciclos', async () => {
     const { buffer, db } = makeBuffer();
-    buffer.maxPerFlush = 3;
+    buffer.maxPerInsert = 3;
     buffer.push(samples(8));
     await buffer.stop();
     expect(buffer.pending).toBe(0);

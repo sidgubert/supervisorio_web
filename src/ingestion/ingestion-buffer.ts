@@ -6,8 +6,8 @@ import { Env } from '../config/env.validation';
 import { MeasurementsService } from '../measurements/measurements.service';
 import { Sample } from './sample';
 
-/** Máximo de amostras gravadas por flush, para manter cada ciclo curto. */
-const MAX_PER_FLUSH = 10_000;
+/** Máximo de amostras por INSERT, para cada instrução continuar curta. */
+const MAX_PER_INSERT = 10_000;
 
 /** Uma gravação em lote concluída. */
 export interface InsertEvent {
@@ -21,7 +21,8 @@ export interface InsertEvent {
 /**
  * Buffer em memória entre as fontes e o banco, compartilhado por todas elas.
  *
- * - Grava em lote a cada INGEST_FLUSH_MS, com no máximo um flush por vez.
+ * - Grava em lote a cada INGEST_FLUSH_MS, com no máximo um flush por vez. Com
+ *   acúmulo, o flush grava vários lotes seguidos (ver drain).
  * - Se o banco falhar, as amostras voltam ao início do buffer (mantendo a
  *   ordem) e são regravadas no próximo ciclo.
  * - O buffer tem teto (INGEST_BUFFER_MAX): com o banco fora por muito tempo,
@@ -45,7 +46,7 @@ export class IngestionBuffer {
 
   private readonly flushMs: number;
   private readonly maxBuffer: number;
-  private maxPerFlush = MAX_PER_FLUSH;
+  private maxPerInsert = MAX_PER_INSERT;
 
   constructor(
     config: ConfigService<Env, true>,
@@ -87,17 +88,35 @@ export class IngestionBuffer {
   flush(): Promise<void> {
     // Se a gravação anterior ainda não terminou, pula este ciclo.
     if (this.inFlight || this.buffer.length === 0) return this.inFlight ?? Promise.resolve();
-    this.inFlight = this.writeNext().finally(() => (this.inFlight = undefined));
+    this.inFlight = this.drain().finally(() => (this.inFlight = undefined));
     return this.inFlight;
   }
 
-  private async writeNext() {
+  /**
+   * Grava, em lotes de até maxPerInsert, o que estava no buffer no início do
+   * ciclo. Com acúmulo (rajada, banco lento ou que acabou de voltar), os lotes
+   * seguem um atrás do outro, e não um por ciclo: senão a vazão máxima seria
+   * maxPerInsert / INGEST_FLUSH_MS (5 mil amostras/s com os padrões), mesmo
+   * com o banco aguentando mais. O que chega durante a gravação fica para o
+   * próximo ciclo. Para na primeira falha.
+   */
+  private async drain() {
+    let remaining = this.buffer.length;
+    while (remaining > 0 && this.buffer.length > 0) {
+      const size = Math.min(remaining, this.maxPerInsert);
+      if (!(await this.writeNext(size))) return;
+      remaining -= size;
+    }
+  }
+
+  /** Grava as `size` amostras mais antigas. Devolve false se o banco falhar. */
+  private async writeNext(size: number): Promise<boolean> {
     if (this.dropped > 0) {
       this.logger.warn(`Buffer cheio: ${this.dropped} amostras antigas descartadas.`);
       this.dropped = 0;
     }
 
-    const batch = this.buffer.splice(0, this.maxPerFlush);
+    const batch = this.buffer.splice(0, size);
     try {
       const t0 = performance.now();
       const n = await this.measurements.insertBatch(batch);
@@ -109,12 +128,14 @@ export class IngestionBuffer {
         `Gravadas ${n} amostras${dup > 0 ? ` (${dup} já existiam)` : ''} ` +
           `(${this.buffer.length} pendentes).`,
       );
+      return true;
     } catch (err) {
       this.buffer = batch.concat(this.buffer);
       this.enforceCap();
       this.logger.error(
         `Falha ao gravar lote (${this.buffer.length} pendentes): ${errorMessage(err)}`,
       );
+      return false;
     }
   }
 
