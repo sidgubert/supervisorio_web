@@ -11,8 +11,13 @@
  *   ns=1;s=Linha.Status          String    texto (não numérico: a fonte ignora)
  *   ns=1;s=Sensor.Instavel       Double    fica Bad (BadSensorFailure) 10 s a cada minuto
  *
- * Variáveis: OPCUA_SIM_PORT (padrão 4840). Endpoint: opc.tcp://localhost:<porta>
- * Sem segurança (SecurityMode None) e com acesso anônimo: só para laboratório.
+ * Variáveis: OPCUA_SIM_PORT (padrão 4840) e OPCUA_SIM_PKI_DIR (certificado do
+ * servidor; padrão: pasta temporária). Endpoint: opc.tcp://localhost:<porta>
+ *
+ * Aceita conexões sem segurança (None) e seguras (Sign e SignAndEncrypt, com
+ * as políticas Basic256Sha256, Aes128_Sha256_RsaOaep e Aes256_Sha256_RsaPss),
+ * para testar OPCUA_SECURITY_MODE. Confia em qualquer certificado de cliente
+ * e o acesso é anônimo: só para laboratório.
  */
 import {
   DataType,
@@ -51,12 +56,21 @@ async function main() {
     port,
     resourcePath: '',
     allowAnonymous: true,
-    securityModes: [MessageSecurityMode.None],
-    securityPolicies: [SecurityPolicy.None],
+    securityModes: [
+      MessageSecurityMode.None,
+      MessageSecurityMode.Sign,
+      MessageSecurityMode.SignAndEncrypt,
+    ],
+    securityPolicies: [
+      SecurityPolicy.None,
+      SecurityPolicy.Basic256Sha256,
+      SecurityPolicy.Aes128_Sha256_RsaOaep,
+      SecurityPolicy.Aes256_Sha256_RsaPss,
+    ],
     buildInfo: { productName: 'TALOS simulador OPC UA' },
-    // Certificado do servidor numa pasta temporária, reaproveitada entre execuções.
+    // Certificado do servidor numa pasta reaproveitada entre execuções.
     serverCertificateManager: new OPCUACertificateManager({
-      rootFolder: join(tmpdir(), 'talos-opcua-sim-pki'),
+      rootFolder: process.env.OPCUA_SIM_PKI_DIR ?? join(tmpdir(), 'talos-opcua-sim-pki'),
       automaticallyAcceptUnknownCertificate: true,
     }),
   });

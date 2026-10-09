@@ -6,8 +6,8 @@ import { IngestionService } from '../../ingestion/ingestion.service';
 import { DEFAULT_SIGNALS } from './signal';
 import { SimulatorSource } from './simulator.source';
 
-function makeSource(env: Partial<Pick<Env, 'SIM_ENABLED' | 'SIM_INTERVAL_MS'>> = {}) {
-  const values = { SIM_ENABLED: true, SIM_INTERVAL_MS: 1000, ...env };
+function makeSource(env: Partial<Pick<Env, 'SIM_ENABLED' | 'SIM_INTERVAL_MS' | 'SIM_TAGS'>> = {}) {
+  const values = { SIM_ENABLED: true, SIM_INTERVAL_MS: 1000, SIM_TAGS: 4, ...env };
   const config = {
     get: (k: keyof typeof values) => values[k],
   } as unknown as ConfigService<Env, true>;
@@ -44,6 +44,18 @@ describe('SimulatorSource', () => {
       expect(batch.map((s) => s.tag)).toEqual(DEFAULT_SIGNALS.map((s) => s.tag));
       expect(new Set(batch.map((s) => s.time?.getTime())).size).toBe(1);
     }
+  });
+
+  it('SIM_TAGS: gera a quantidade pedida de tags (teste de carga)', () => {
+    jest.useFakeTimers();
+    const { source } = makeSource({ SIM_INTERVAL_MS: 100, SIM_TAGS: 250 });
+    const batches: SampleInput[][] = [];
+    source.start((s) => batches.push(s));
+    jest.advanceTimersByTime(100);
+    expect(batches[0]).toHaveLength(250);
+    expect(batches[0].at(-1)?.tag).toBe('SIM-0250.PV');
+    expect(source.status().tags).toBe(250);
+    source.stop();
   });
 
   it('para de emitir após stop', () => {

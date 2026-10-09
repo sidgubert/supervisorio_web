@@ -12,6 +12,7 @@ describe('validateEnv', () => {
       PORT: 3000,
       SIM_ENABLED: true,
       SIM_INTERVAL_MS: 1000,
+      SIM_TAGS: 4,
       INGEST_FLUSH_MS: 2000,
       INGEST_BUFFER_MAX: 100_000,
       LIVE_FLUSH_MS: 200,
@@ -29,6 +30,9 @@ describe('validateEnv', () => {
       OPCUA_ENDPOINT: 'opc.tcp://localhost:4840',
       OPCUA_SAMPLING_MS: 1000,
       OPCUA_PKI_DIR: '.opcua-pki',
+      OPCUA_SECURITY_MODE: 'none',
+      OPCUA_SECURITY_POLICY: 'Basic256Sha256',
+      OPCUA_TRUST_UNKNOWN_CERTS: true,
       AUTH_ENABLED: false,
       AUTH_USER: 'operador',
       AUTH_PASSWORD: '',
@@ -63,6 +67,30 @@ describe('validateEnv', () => {
   it('ALARM_HYSTERESIS_PCT aceita decimais entre 0 e 50', () => {
     expect(validateEnv({ ALARM_HYSTERESIS_PCT: '1.5' }).ALARM_HYSTERESIS_PCT).toBe(1.5);
     expect(() => validateEnv({ ALARM_HYSTERESIS_PCT: '60' })).toThrow(/ALARM_HYSTERESIS_PCT/);
+  });
+
+  it('segurança OPC UA: só os modos e políticas conhecidos', () => {
+    const env = validateEnv({
+      OPCUA_SECURITY_MODE: 'sign_and_encrypt',
+      OPCUA_SECURITY_POLICY: 'Aes256_Sha256_RsaPss',
+      OPCUA_TRUST_UNKNOWN_CERTS: 'false',
+    });
+    expect(env).toMatchObject({
+      OPCUA_SECURITY_MODE: 'sign_and_encrypt',
+      OPCUA_SECURITY_POLICY: 'Aes256_Sha256_RsaPss',
+      OPCUA_TRUST_UNKNOWN_CERTS: false,
+    });
+    expect(() => validateEnv({ OPCUA_SECURITY_MODE: 'Sign' })).toThrow(
+      /OPCUA_SECURITY_MODE="Sign" deve ser none, sign, sign_and_encrypt/,
+    );
+    expect(() => validateEnv({ OPCUA_SECURITY_POLICY: 'Basic128Rsa15' })).toThrow(
+      /OPCUA_SECURITY_POLICY/,
+    );
+  });
+
+  it('SIM_TAGS entre 1 e 10000', () => {
+    expect(validateEnv({ SIM_TAGS: '1000' }).SIM_TAGS).toBe(1000);
+    expect(() => validateEnv({ SIM_TAGS: '0' })).toThrow(/SIM_TAGS/);
   });
 
   it('converte números e booleanos', () => {

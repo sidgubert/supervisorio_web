@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'fs';
 import { AddressInfo, createServer } from 'net';
 import {
   DataType,
@@ -44,14 +44,16 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** Servidor com variáveis de vários tipos em ns=1;s=<nome>. */
-async function startServer(port: number) {
+/** Servidor com variáveis de vários tipos em ns=1;s=<nome>. Sem segurança, ou só com ela. */
+async function startServer(port: number, secure = false) {
   const server = new OPCUAServer({
     port,
     resourcePath: '/UA/teste',
     allowAnonymous: true,
-    securityModes: [MessageSecurityMode.None],
-    securityPolicies: [SecurityPolicy.None],
+    securityModes: secure
+      ? [MessageSecurityMode.Sign, MessageSecurityMode.SignAndEncrypt]
+      : [MessageSecurityMode.None],
+    securityPolicies: [secure ? SecurityPolicy.Basic256Sha256 : SecurityPolicy.None],
     serverCertificateManager,
   });
   await server.initialize();
@@ -111,7 +113,12 @@ async function waitFor(cond: () => boolean, timeoutMs = 10_000) {
 const tag = (name: string, address: string, extra: Partial<Tag> = {}) =>
   ({ tag: name, source: 'opcua', address, enabled: true, ...extra }) as Tag;
 
-function setup(port: number, initialTags: Tag[], enabled = true) {
+type Security = Pick<
+  Env,
+  'OPCUA_SECURITY_MODE' | 'OPCUA_SECURITY_POLICY' | 'OPCUA_TRUST_UNKNOWN_CERTS' | 'OPCUA_PKI_DIR'
+>;
+
+function setup(port: number, initialTags: Tag[], enabled = true, security: Partial<Security> = {}) {
   let tags = initialTags;
   const changes = new Subject<TagChange>();
   const tagsService = {
@@ -126,6 +133,10 @@ function setup(port: number, initialTags: Tag[], enabled = true) {
     OPCUA_SAMPLING_MS: 50,
     // A fonte cria o próprio gerenciador de certificados nesta pasta.
     OPCUA_PKI_DIR: join(pki, 'client'),
+    OPCUA_SECURITY_MODE: 'none',
+    OPCUA_SECURITY_POLICY: 'Basic256Sha256',
+    OPCUA_TRUST_UNKNOWN_CERTS: true,
+    ...security,
   };
   const config = {
     get: (k: keyof typeof values) => values[k],
@@ -138,6 +149,7 @@ function setup(port: number, initialTags: Tag[], enabled = true) {
   source.clientOptions = {
     connectionStrategy: { maxRetry: -1, initialDelay: 100, maxDelay: 300 },
   };
+  source.retryDelayMs = 200;
   const received: SampleInput[] = [];
   const emit = (s: SampleInput[]) => received.push(...s);
   const setTags = (next: Tag[], change: TagChange) => {
@@ -273,6 +285,64 @@ describe('OpcUaSource', () => {
     server!.set('Pressure', 5.5);
     await waitFor(() => of(ctx.received, 'PT-1').at(-1)?.value === 5.5);
     expect(of(ctx.received, 'TT-1').length).toBe(before);
+  });
+
+  it('SignAndEncrypt: conecta com certificados e recebe os valores', async () => {
+    const port = await freePort();
+    server = await startServer(port, true);
+    const ctx = setup(port, [tag('TT-1', 'ns=1;s=Temperature')], true, {
+      OPCUA_SECURITY_MODE: 'sign_and_encrypt',
+      OPCUA_PKI_DIR: join(pki, 'client-secure'),
+    });
+    source = ctx.source;
+    await source.start(ctx.emit);
+    await waitFor(() => ctx.received.length >= 1, 20_000);
+    expect(ctx.received[0]).toMatchObject({ tag: 'TT-1', value: 21.5 });
+    expect(source.status().detail).toMatch(/segurança SignAndEncrypt\/Basic256Sha256/);
+  });
+
+  it('sem segurança, não conecta num servidor que a exige', async () => {
+    const port = await freePort();
+    server = await startServer(port, true);
+    const ctx = setup(port, [tag('TT-1', 'ns=1;s=Temperature')]);
+    source = ctx.source;
+    await source.start(ctx.emit);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(source.status().connected).toBe(false);
+    expect(ctx.received).toHaveLength(0);
+  });
+
+  it('OPCUA_TRUST_UNKNOWN_CERTS=false: recusa o servidor até o certificado ser confiado', async () => {
+    const port = await freePort();
+    server = await startServer(port, true);
+    const clientPki = join(pki, 'client-strict');
+    const ctx = setup(port, [tag('TT-1', 'ns=1;s=Temperature')], true, {
+      OPCUA_SECURITY_MODE: 'sign',
+      OPCUA_TRUST_UNKNOWN_CERTS: false,
+      OPCUA_PKI_DIR: clientPki,
+    });
+    source = ctx.source;
+    await source.start(ctx.emit);
+
+    // O certificado desconhecido vai para rejected/, e nada é recebido.
+    const rejected = join(clientPki, 'rejected');
+    const listRejected = () => {
+      try {
+        return readdirSync(rejected).filter((f) => f.endsWith('.pem') || f.endsWith('.der'));
+      } catch {
+        return [];
+      }
+    };
+    await waitFor(() => listRejected().length > 0, 20_000);
+    expect(source.status().connected).toBe(false);
+    expect(ctx.received).toHaveLength(0);
+
+    // O operador confia no certificado (move para trusted/certs): conecta sozinho.
+    const trusted = join(clientPki, 'trusted', 'certs');
+    mkdirSync(trusted, { recursive: true });
+    for (const f of listRejected()) renameSync(join(rejected, f), join(trusted, f));
+    await waitFor(() => ctx.received.length >= 1, 25_000);
+    expect(source.status().connected).toBe(true);
   });
 
   it('servidor fora na subida: não trava, e conecta quando ele aparece', async () => {

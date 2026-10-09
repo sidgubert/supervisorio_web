@@ -9,7 +9,7 @@ import type {
   OPCUAClient,
   OPCUAClientOptions,
 } from 'node-opcua-client';
-import { resolve } from 'path';
+import { join, resolve } from 'path';
 import { Subscription } from 'rxjs';
 import { errorMessage } from '../../common/error-message';
 import { RateLimitedLogger } from '../../common/rate-limited-logger';
@@ -27,6 +27,9 @@ import {
 
 type OpcUa = typeof import('node-opcua-client');
 
+/** OPCUA_SECURITY_MODE -> nome do MessageSecurityMode no node-opcua. */
+const SECURITY_MODES = { none: 'None', sign: 'Sign', sign_and_encrypt: 'SignAndEncrypt' } as const;
+
 /**
  * Fonte OPC UA: monitora (subscription) o atributo Value de cada tag com
  * `source = opcua`, cujo `address` é o NodeId (ex: ns=3;s=SlowUInt1), no
@@ -42,8 +45,15 @@ type OpcUa = typeof import('node-opcua-client');
  * - Acompanha o cadastro: cria e remove itens monitorados sem reiniciar.
  * - O node-opcua (~1 s para carregar) só é importado com a fonte habilitada.
  *
- * Segurança: conecta com SecurityMode None e usuário anônimo, adequado a
- * laboratório; em rede de produção, use Sign/SignAndEncrypt.
+ * Segurança (OPCUA_SECURITY_MODE): `none` (padrão, laboratório), `sign`
+ * (mensagens assinadas: ninguém altera no caminho) ou `sign_and_encrypt`
+ * (também cifradas: ninguém lê no caminho), com os algoritmos de
+ * OPCUA_SECURITY_POLICY. Com segurança, cliente e servidor trocam
+ * certificados: o servidor precisa confiar no do cliente (OPCUA_PKI_DIR/own/certs),
+ * e o cliente, no do servidor. Com OPCUA_TRUST_UNKNOWN_CERTS=false, só aceita
+ * servidor cujo certificado esteja em OPCUA_PKI_DIR/trusted/certs; um
+ * desconhecido vai para OPCUA_PKI_DIR/rejected e a conexão é recusada. O
+ * usuário é sempre anônimo.
  */
 @Injectable()
 export class OpcUaSource implements AcquisitionSource, OnModuleInit {
@@ -73,8 +83,12 @@ export class OpcUaSource implements AcquisitionSource, OnModuleInit {
   /** Sincronizações dos itens monitorados, em série. */
   private syncing: Promise<void> = Promise.resolve();
 
-  /** Opções extras do cliente (os testes usam para a pasta de certificados). */
+  /** Opções extras do cliente (os testes usam para acelerar a reconexão). */
   clientOptions: Partial<OPCUAClientOptions> = {};
+  /** Espera entre tentativas quando a conexão falha de vez (ex: certificado). */
+  retryDelayMs = 10_000;
+  /** Interrompe a espera entre tentativas (no stop). */
+  private wake?: () => void;
 
   constructor(
     private readonly config: ConfigService<Env, true>,
@@ -98,24 +112,82 @@ export class OpcUaSource implements AcquisitionSource, OnModuleInit {
     this.changes = this.tags.changes$.subscribe((change) => {
       if (this.concerns(change)) this.scheduleSync(true);
     });
-    this.logger.log(`Conectando a ${this.endpoint()} (amostragem ${this.samplingMs()} ms)...`);
-    this.running = this.run().catch((err) => {
-      if (!this.stopped) this.logger.error(`A fonte OPC UA parou: ${errorMessage(err)}`);
-    });
+    this.logger.log(
+      `Conectando a ${this.endpoint()} (segurança ${this.securityLabel()}, ` +
+        `amostragem ${this.samplingMs()} ms)...`,
+    );
+    if (this.secure() && this.config.get('OPCUA_TRUST_UNKNOWN_CERTS', { infer: true })) {
+      this.logger.warn(
+        'OPCUA_TRUST_UNKNOWN_CERTS=true: o certificado do servidor é aceito sem verificação ' +
+          '(a conexão é cifrada, mas não se confirma com quem). Use false fora do laboratório.',
+      );
+    }
+    this.running = this.runUntilStopped();
+  }
+
+  /**
+   * Tenta conectar até conseguir ou a fonte parar. Quedas de conexão o
+   * próprio node-opcua resolve; aqui ficam as falhas que ele não repete, como
+   * certificado do servidor não confiável: a fonte espera retryDelayMs e tenta
+   * de novo, então basta confiar no certificado, sem reiniciar a API.
+   */
+  private async runUntilStopped() {
+    while (!this.stopped) {
+      try {
+        await this.run();
+        return;
+      } catch (err) {
+        if (this.stopped) return;
+        this.connected = false;
+        const delay = this.retryDelayMs;
+        this.rateLimited.error(
+          'run',
+          `Falha ao conectar a ${this.endpoint()}: ${errorMessage(err)}${this.hint(err)} ` +
+            `Nova tentativa a cada ${delay / 1000} s.`,
+        );
+        await this.disposeClient();
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delay);
+          this.wake = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        this.wake = undefined;
+      }
+    }
+  }
+
+  /** Dica para os erros de certificado, os mais comuns ao ligar a segurança. */
+  private hint(err: unknown): string {
+    const pki = resolve(this.config.get('OPCUA_PKI_DIR', { infer: true }));
+    if (/BadCertificateUntrusted/.test(errorMessage(err))) {
+      return (
+        `. O certificado do servidor não é confiável e foi salvo em ${join(pki, 'rejected')};` +
+        ` para confiar nele, mova-o para ${join(pki, 'trusted', 'certs')}.`
+      );
+    }
+    return '.';
+  }
+
+  private async disposeClient() {
+    await withTimeout(this.client?.disconnect(), 3000).catch(() => undefined);
+    await this.certificates?.dispose().catch(() => undefined);
+    this.certificates = undefined;
+    this.subscription = this.session = this.client = undefined;
   }
 
   async stop() {
     this.stopped = true;
+    this.wake?.();
     this.changes?.unsubscribe();
     await this.syncing;
     // Fechar a sessão avisa o servidor; com a conexão caída, não espera muito.
     await withTimeout(this.session?.close(), 3000).catch(() => undefined);
     await withTimeout(this.client?.disconnect(), 3000).catch(() => undefined);
     await this.running;
-    await this.certificates?.dispose().catch(() => undefined);
-    this.certificates = undefined;
+    await this.disposeClient();
     this.items.clear();
-    this.subscription = this.session = this.client = undefined;
     this.connected = false;
     this.emit = undefined;
   }
@@ -128,7 +200,7 @@ export class OpcUaSource implements AcquisitionSource, OnModuleInit {
     return {
       connected: this.connected,
       tags: this.desired.size,
-      detail: [this.endpoint(), ...notes].join(', '),
+      detail: [this.endpoint(), `segurança ${this.securityLabel()}`, ...notes].join(', '),
     };
   }
 
@@ -140,26 +212,45 @@ export class OpcUaSource implements AcquisitionSource, OnModuleInit {
     return this.config.get('OPCUA_SAMPLING_MS', { infer: true });
   }
 
+  private secure() {
+    return this.config.get('OPCUA_SECURITY_MODE', { infer: true }) !== 'none';
+  }
+
+  /** Ex: "None" ou "SignAndEncrypt/Basic256Sha256". */
+  private securityLabel() {
+    const mode = SECURITY_MODES[this.config.get('OPCUA_SECURITY_MODE', { infer: true })];
+    if (!this.secure()) return mode;
+    return `${mode}/${this.config.get('OPCUA_SECURITY_POLICY', { infer: true })}`;
+  }
+
   /** Conecta (tentando indefinidamente), abre sessão e assinatura. */
   private async run() {
     const lib = (this.lib ??= await import('node-opcua-client'));
     if (this.stopped) return;
     const endpoint = this.endpoint();
-    // Certificado do cliente numa pasta só desta aplicação (e não na pasta
-    // compartilhada por todos os programas node-opcua do usuário). Com
-    // SecurityMode None ele só identifica o cliente; ao ligar segurança num
-    // servidor real, é o certificado de own/certs que o servidor deve confiar.
+    // Certificados numa pasta só desta aplicação (e não na pasta compartilhada
+    // por todos os programas node-opcua do usuário): own/ é o do cliente,
+    // trusted/ e rejected/ os dos servidores.
     const { OPCUACertificateManager } = await import('node-opcua-certificate-manager');
+    // No Windows, o fs.watch dá erro (EPERM) quando um certificado observado
+    // é movido ou apagado, e o node-opcua-pki não trata esse erro: a API cairia
+    // justamente ao confiar num certificado (mover de rejected/ para trusted/).
+    // Verificando as pastas por polling (a cada 5 s), o problema não existe.
+    process.env.OPCUA_PKI_USE_POLLING ??= 'true';
     this.certificates = new OPCUACertificateManager({
       rootFolder: resolve(this.config.get('OPCUA_PKI_DIR', { infer: true })),
-      automaticallyAcceptUnknownCertificate: true,
+      automaticallyAcceptUnknownCertificate: this.config.get('OPCUA_TRUST_UNKNOWN_CERTS', {
+        infer: true,
+      }),
     });
+    const mode = this.config.get('OPCUA_SECURITY_MODE', { infer: true });
+    const policy = this.config.get('OPCUA_SECURITY_POLICY', { infer: true });
     const client = lib.OPCUAClient.create({
       clientCertificateManager: this.certificates,
       applicationName: 'talos',
       endpointMustExist: false,
-      securityMode: lib.MessageSecurityMode.None,
-      securityPolicy: lib.SecurityPolicy.None,
+      securityMode: lib.MessageSecurityMode[SECURITY_MODES[mode]],
+      securityPolicy: this.secure() ? lib.SecurityPolicy[policy] : lib.SecurityPolicy.None,
       keepSessionAlive: true,
       connectionStrategy: { maxRetry: -1, initialDelay: 1000, maxDelay: 10_000 },
       ...this.clientOptions,
@@ -202,7 +293,8 @@ export class OpcUaSource implements AcquisitionSource, OnModuleInit {
     });
     this.connected = true;
     this.rateLimited.reset('conn');
-    this.logger.log(`Conectado a ${endpoint}.`);
+    this.rateLimited.reset('run');
+    this.logger.log(`Conectado a ${endpoint} (segurança ${this.securityLabel()}).`);
     this.scheduleSync(false);
   }
 

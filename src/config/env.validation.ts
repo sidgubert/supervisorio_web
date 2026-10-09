@@ -19,9 +19,11 @@ export interface Env {
   PORT: number;
   SIM_ENABLED: boolean;
   SIM_INTERVAL_MS: number;
+  /** Quantidade de tags do simulador (as 4 de exemplo e, acima disso, geradas). */
+  SIM_TAGS: number;
   INGEST_FLUSH_MS: number;
   INGEST_BUFFER_MAX: number;
-  /** Janela de agrupamento do envio pelo WebSocket (0 = imediato). */
+  /** Janela de agrupamento do envio do tempo real, SSE e WebSocket (0 = imediato). */
   LIVE_FLUSH_MS: number;
   LIVE_MAX_SAMPLES_PER_TAG: number;
   MQTT_ENABLED: boolean;
@@ -39,6 +41,11 @@ export interface Env {
   OPCUA_SAMPLING_MS: number;
   /** Pasta dos certificados do cliente OPC UA (relativa ao diretório da API). */
   OPCUA_PKI_DIR: string;
+  OPCUA_SECURITY_MODE: OpcUaSecurityMode;
+  /** Algoritmos da conexão segura (ignorado com OPCUA_SECURITY_MODE=none). */
+  OPCUA_SECURITY_POLICY: OpcUaSecurityPolicy;
+  /** Aceita certificado de servidor desconhecido (laboratório) ou só os confiáveis. */
+  OPCUA_TRUST_UNKNOWN_CERTS: boolean;
   /** Autenticação (token HMAC). */
   AUTH_ENABLED: boolean;
   AUTH_USER: string;
@@ -50,6 +57,17 @@ export interface Env {
   RETENTION_ENABLED: boolean;
   RETENTION_DAYS: number;
 }
+
+export const OPCUA_SECURITY_MODES = ['none', 'sign', 'sign_and_encrypt'] as const;
+export type OpcUaSecurityMode = (typeof OPCUA_SECURITY_MODES)[number];
+
+/** Políticas atuais da especificação (as antigas, como Basic128Rsa15, são inseguras). */
+export const OPCUA_SECURITY_POLICIES = [
+  'Basic256Sha256',
+  'Aes128_Sha256_RsaOaep',
+  'Aes256_Sha256_RsaPss',
+] as const;
+export type OpcUaSecurityPolicy = (typeof OPCUA_SECURITY_POLICIES)[number];
 
 /** Valor de exemplo do .env.example: recusado com a autenticação ligada. */
 export const EXAMPLE_AUTH_SECRET = 'troque-por-um-segredo-aleatorio-de-32-caracteres-ou-mais';
@@ -104,6 +122,14 @@ export function validateEnv(raw: Raw): Env {
     return n;
   };
 
+  const oneOf = <T extends string>(key: string, def: T, allowed: readonly T[]): T => {
+    const v = raw[key];
+    if (v === undefined || v === '') return def;
+    if ((allowed as readonly string[]).includes(v)) return v as T;
+    errors.push(`${key}="${v}" deve ser ${allowed.join(', ')}`);
+    return def;
+  };
+
   const url = (key: string, def: string, protocols: string[]): string => {
     const v = str(key, def);
     let protocol: string;
@@ -130,6 +156,7 @@ export function validateEnv(raw: Raw): Env {
     PORT: int('PORT', 3000, 1, 65535),
     SIM_ENABLED: bool('SIM_ENABLED', true),
     SIM_INTERVAL_MS: int('SIM_INTERVAL_MS', 1000, 10, 3_600_000),
+    SIM_TAGS: int('SIM_TAGS', 4, 1, 10_000),
     INGEST_FLUSH_MS: int('INGEST_FLUSH_MS', 2000, 10, 3_600_000),
     INGEST_BUFFER_MAX: int('INGEST_BUFFER_MAX', 100_000, 100, 10_000_000),
     LIVE_FLUSH_MS: int('LIVE_FLUSH_MS', 200, 0, 10_000),
@@ -147,6 +174,13 @@ export function validateEnv(raw: Raw): Env {
     OPCUA_ENDPOINT: url('OPCUA_ENDPOINT', 'opc.tcp://localhost:4840', ['opc.tcp']),
     OPCUA_SAMPLING_MS: int('OPCUA_SAMPLING_MS', 1000, 50, 3_600_000),
     OPCUA_PKI_DIR: str('OPCUA_PKI_DIR', '.opcua-pki'),
+    OPCUA_SECURITY_MODE: oneOf('OPCUA_SECURITY_MODE', 'none', OPCUA_SECURITY_MODES),
+    OPCUA_SECURITY_POLICY: oneOf(
+      'OPCUA_SECURITY_POLICY',
+      'Basic256Sha256',
+      OPCUA_SECURITY_POLICIES,
+    ),
+    OPCUA_TRUST_UNKNOWN_CERTS: bool('OPCUA_TRUST_UNKNOWN_CERTS', true),
     AUTH_ENABLED: bool('AUTH_ENABLED', false),
     AUTH_USER: str('AUTH_USER', 'operador'),
     AUTH_PASSWORD: str('AUTH_PASSWORD', ''),
