@@ -82,6 +82,7 @@ describe('MetricsCollectorService', () => {
     const snap = c.snapshot(T0 + 1000);
     expect(snap.bySource.sim.avgInsertMs).toBe(20);
     expect(snap.bySource.modbus.avgInsertMs).toBe(10);
+    expect(snap.bySource.sim).toMatchObject({ p50InsertMs: 10, p95InsertMs: 30 });
     expect(snap.avgInsertMs).toBe(20);
   });
 
@@ -99,6 +100,23 @@ describe('MetricsCollectorService', () => {
       sseEventsSent: 5,
       wsEventsSent: 2,
     });
+  });
+
+  it('CPU: média desde a leitura mais antiga da janela; memória atual', () => {
+    const inserts$ = new Subject<InsertEvent>();
+    const c = new MetricsCollectorService({ inserts$ } as unknown as IngestionService);
+    const usage = jest.spyOn(process, 'cpuUsage');
+    usage.mockReturnValue({ user: 1_000_000, system: 0 }); // 1 s de CPU
+    c.onModuleInit(); // primeira leitura, agora
+    usage.mockReturnValue({ user: 1_500_000, system: 500_000 }); // +1 s de CPU
+    const now = Date.now();
+    const p = c.processMetrics(now + 4000); // em 4 s
+    expect(p.cpuPct).toBeGreaterThan(24); // 1 s / ~4 s = 25%
+    expect(p.cpuPct).toBeLessThanOrEqual(25.1);
+    expect(p.rssMb).toBeGreaterThan(0);
+    expect(p.heapUsedMb).toBeGreaterThan(0);
+    c.onModuleDestroy();
+    usage.mockRestore();
   });
 
   it('recebe as gravações da ingestão', () => {

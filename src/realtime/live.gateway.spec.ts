@@ -129,6 +129,14 @@ describe('LiveGateway (socket.io)', () => {
     expect(ack.ok && ack.last.map((s) => s.value)).toEqual([11]);
   });
 
+  it('sem clientes conectados, não transmite nem conta eventos', async () => {
+    await new Promise((r) => setTimeout(r, 150)); // desconexões dos testes anteriores
+    ctx.metrics.wsSent.mockClear();
+    ctx.feed.next([sample('A', 1)]);
+    ctx.alarmFeed.next({ type: 'raised', alarm: {} } as unknown as AlarmEvent);
+    expect(ctx.metrics.wsSent).not.toHaveBeenCalled();
+  });
+
   it('unsubscribe para a entrega', async () => {
     const c = await connect();
     const got = collector(c);

@@ -17,11 +17,12 @@ export class MetricsController {
     private readonly retention: RetentionService,
   ) {}
 
-  /** Ingestão (taxas, latência, clientes do tempo real) e retenção. */
+  /** Ingestão (taxas, latência, clientes do tempo real), recursos do processo e retenção. */
   @Get('overview')
   overview() {
     return {
       ingest: this.collector.snapshot(),
+      process: this.collector.processMetrics(),
       retention: { enabled: this.retention.isEnabled(), days: this.retention.getDays() },
     };
   }

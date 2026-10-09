@@ -63,6 +63,7 @@ export class LiveGateway
       this.feed.batches$.subscribe((batches) => this.broadcast(batches)),
       // Alarmes vão para todos os clientes: a lista de alarmes é global.
       this.alarms.events$.subscribe((event) => {
+        if (!this.hasClients()) return;
         this.server.emit('alarm', event);
         this.metrics.wsSent(1);
       }),
@@ -125,8 +126,14 @@ export class LiveGateway
     return { ok: true };
   }
 
+  /** Sem nenhum cliente conectado, não há o que transmitir (nem contar). */
+  private hasClients() {
+    return this.server.sockets.size > 0;
+  }
+
   /** Envia o lote de cada tag para quem assina a tag ou todas. */
   private broadcast(batches: Sample[][]) {
+    if (!this.hasClients()) return;
     try {
       for (const samples of batches) {
         // Um único emit para as duas salas: o socket.io não duplica para quem

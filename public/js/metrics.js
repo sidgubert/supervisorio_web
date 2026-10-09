@@ -18,7 +18,7 @@ function kpi(label, value, sub = '') {
   }</div>`;
 }
 
-function renderIngest({ ingest, retention }) {
+function renderIngest({ ingest, process, retention }) {
   document.getElementById('ingest-stats').innerHTML = [
     kpi('Em execução há', fmtDuration(ingest.uptimeSec)),
     kpi('Amostras gravadas', fmtNum(ingest.totalSamples, 0)),
@@ -29,6 +29,12 @@ function renderIngest({ ingest, retention }) {
       'Eventos enviados',
       fmtNum(ingest.sseEventsSent + ingest.wsEventsSent, 0),
       'SSE + WebSocket',
+    ),
+    kpi('CPU da API', `${fmtNum(process.cpuPct, 1)}%`, 'média de 60 s, % de um núcleo'),
+    kpi(
+      'Memória da API',
+      `${fmtNum(process.rssMb, 0)} MiB`,
+      `heap ${fmtNum(process.heapUsedMb, 0)} MiB`,
     ),
     kpi('Retenção', retention.enabled ? `${retention.days} dias` : 'desligada'),
   ].join('');
