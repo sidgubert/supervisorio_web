@@ -50,7 +50,9 @@ services:
   # Simuladores rodando no PC (npm run sim:modbus / sim:opcua) ficam em
   # host.docker.internal, ex: MODBUS_HOST=host.docker.internal.
   api:
-    build: .
+    build:
+      context: .
+      target: api
     image: talos:latest
     container_name: talos-api
     restart: unless-stopped
@@ -75,6 +77,59 @@ services:
         condition: service_started
     profiles: ['app']
 
+  # Simuladores de equipamentos (opcionais), para testar as fontes sem hardware:
+  #   docker compose --profile simulators up -d --build
+  # No PC: Modbus TCP em localhost:5020 e OPC UA em opc.tcp://localhost:4840.
+  # Da API em container: modbus-sim:5020 e opc.tcp://opcua-sim:4840. O
+  # simulador MQTT publica no broker (talos/sim/001...); cadastre as tags.
+  modbus-sim:
+    build:
+      context: .
+      target: simulators
+    image: talos-simulators:latest
+    container_name: talos-modbus-sim
+    restart: unless-stopped
+    command: ['node', '-r', 'ts-node/register/transpile-only', 'tools/modbus-sim.ts']
+    environment:
+      MODBUS_SIM_HOST: 0.0.0.0
+    ports:
+      - '5020:5020'
+    profiles: ['simulators']
+
+  opcua-sim:
+    build:
+      context: .
+      target: simulators
+    image: talos-simulators:latest
+    container_name: talos-opcua-sim
+    restart: unless-stopped
+    command: ['node', '-r', 'ts-node/register/transpile-only', 'tools/opcua-sim.ts']
+    environment:
+      # Certificado do servidor num volume: o mesmo a cada reinício, para não
+      # precisar confiar nele de novo (OPCUA_TRUST_UNKNOWN_CERTS=false).
+      OPCUA_SIM_PKI_DIR: /pki
+    ports:
+      - '4840:4840'
+    volumes:
+      - opcua_sim_pki:/pki
+    profiles: ['simulators']
+
+  mqtt-sim:
+    build:
+      context: .
+      target: simulators
+    image: talos-simulators:latest
+    container_name: talos-mqtt-sim
+    restart: unless-stopped
+    command: ['node', '-r', 'ts-node/register/transpile-only', 'tools/mqtt-sim.ts']
+    environment:
+      MQTT_SIM_URL: mqtt://mosquitto:1883
+    depends_on:
+      mosquitto:
+        condition: service_started
+    profiles: ['simulators']
+
 volumes:
   timescale_data:
   opcua_pki:
+  opcua_sim_pki:

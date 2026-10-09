@@ -20,7 +20,13 @@
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "sim:modbus": "ts-node tools/modbus-sim.ts",
-    "sim:opcua": "ts-node tools/opcua-sim.ts"
+    "sim:opcua": "ts-node tools/opcua-sim.ts",
+    "sim:mqtt": "ts-node tools/mqtt-sim.ts",
+    "sim:verify": "ts-node tools/sim-verify.ts",
+    "bench:insert": "ts-node tools/bench-insert.ts",
+    "bench:sse": "ts-node tools/sse-latency.ts",
+    "bench:alarms": "ts-node tools/alarm-flapping.ts",
+    "report:acquisition": "ts-node tools/acquisition-report.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",

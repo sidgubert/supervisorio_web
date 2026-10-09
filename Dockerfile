@@ -1,10 +1,12 @@
-# Imagem da API TALOS (backend + dashboard).
+# Imagens do TALOS.
 #
-#   docker compose --profile app up -d --build
+#   docker compose --profile app up -d --build          a API (backend + dashboard)
+#   docker compose --profile simulators up -d --build   os simuladores de equipamentos
 #
-# Duas etapas: a primeira compila o TypeScript (com as dependências de
-# desenvolvimento); a segunda leva só o JavaScript compilado, o dashboard e as
-# dependências de produção.
+# A etapa build compila o TypeScript (com as dependências de desenvolvimento).
+# A imagem da API (última etapa, a padrão) leva só o JavaScript compilado, o
+# dashboard e as dependências de produção. A dos simuladores roda os scripts
+# de tools/ com ts-node.
 
 # ---- build ----
 FROM node:24-alpine AS build
@@ -15,8 +17,16 @@ COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY src ./src
 RUN npm run build
 
-# ---- execução ----
-FROM node:24-alpine
+# ---- simuladores (Modbus, OPC UA, MQTT) ----
+FROM build AS simulators
+COPY tools ./tools
+# Pasta do certificado do simulador OPC UA (volume), gravável pelo usuário node.
+RUN mkdir -p /pki && chown node:node /pki
+USER node
+CMD ["node", "-r", "ts-node/register/transpile-only", "tools/modbus-sim.ts"]
+
+# ---- API ----
+FROM node:24-alpine AS api
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./

@@ -13,7 +13,7 @@ import { Measurement } from './measurement.entity';
  * ON CONFLICT DO NOTHING + índice único (tag, time): regravar um lote que o
  * banco já tinha aceitado não duplica amostras. O CTE conta as inseridas.
  */
-const INSERT_SQL = `
+export const INSERT_SQL = `
   WITH inserted AS (
     INSERT INTO measurements (time, tag, value, quality, source, received_at)
     SELECT * FROM unnest(
