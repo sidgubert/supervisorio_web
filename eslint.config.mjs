@@ -38,6 +38,16 @@ export default tseslint.config(
     },
   },
   {
+    // Testes do frontend: JavaScript (ESM) com jsdom e Jest, sem checagem de tipos.
+    files: ['test/frontend/**/*.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.jest, ...globals.node },
+      parserOptions: { projectService: false },
+    },
+  },
+  {
     // Nos testes, acessar membros privados via `as any` é intencional.
     files: ['**/*.spec.ts'],
     rules: {

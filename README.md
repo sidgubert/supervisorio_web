@@ -653,18 +653,29 @@ migration inicial é idempotente e apenas se registra.
 ## Testes e qualidade de código
 
 ```bash
-npm test            # testes (Jest)
-npm run test:cov    # testes + relatório de cobertura em coverage/
-npm run lint        # ESLint (typescript-eslint, regras com checagem de tipos)
-npm run format      # formata com Prettier
+npm test                                # todos os testes (backend e frontend)
+npx jest --selectProjects frontend      # só o frontend (ou backend)
+npm run test:cov                        # testes + relatório de cobertura em coverage/
+npm run lint                            # ESLint (typescript-eslint, regras com checagem de tipos)
+npm run format                          # formata com Prettier
 ```
 
-As fontes são testadas contra servidores reais em memória, sem Docker: um
+**Backend** (`src/**/*.spec.ts`). As fontes são testadas contra servidores reais em memória, sem Docker: um
 broker MQTT (aedes), um servidor Modbus TCP (`ServerTCP` do modbus-serial) e
 um servidor OPC UA (node-opcua-server), inclusive com o servidor fora do ar na
 subida, caindo no meio da operação e, no OPC UA, com conexão cifrada e
-certificado não confiável. O GitHub Actions roda tudo isso a cada push
-(`.github/workflows/ci.yml`).
+certificado não confiável.
+
+**Frontend** (`test/frontend/*.spec.js`): Jest com jsdom e Testing Library,
+sobre o HTML real de `public/`. Os testes agem como o usuário (botões e
+campos encontrados pelo nome, cliques, digitação, arraste) e verificam o que
+aparece na tela e o que é enviado à API, que é simulada por rota
+(`test/frontend/helpers.js`). Cobrem as telas, o login, a sessão, o tempo real
+(SSE) e a edição do sinótico, inclusive falhas da API e a proteção contra
+HTML vindo do cadastro. As contas do sinótico ficam em funções puras
+(`synoptic-geometry.js`), testadas isoladamente.
+
+O GitHub Actions roda tudo isso a cada push (`.github/workflows/ci.yml`).
 
 ## Experimentos
 
@@ -715,6 +726,7 @@ public/                   dashboard (sem build)
                           metrics, config), login e acesso à API (auth.js)
 .github/workflows/ci.yml  integração contínua (formatação, lint, build, testes, imagens)
 docs/experimentos.md      roteiro e resultados dos experimentos
+test/frontend/            testes do dashboard (Jest + jsdom + Testing Library)
 tools/
   modbus-sim.ts           simulador de CLP Modbus TCP (npm run sim:modbus)
   opcua-sim.ts            simulador de servidor OPC UA (npm run sim:opcua)
@@ -724,7 +736,7 @@ tools/
   sse-latency.ts          latência do tempo real (npm run bench:sse)
   acquisition-report.ts   latência de aquisição por fonte (npm run report:acquisition)
   sim-verify.ts           conferência dos dados do simulador (npm run sim:verify)
-jest.esm-transformer.cjs  converte dependências só-ESM para o Jest
+jest.esm-transformer.cjs  converte código ESM para o Jest (frontend e dependências só-ESM)
 src/
   main.ts                 bootstrap: prefixo /api, dashboard estático, CORS, shutdown hooks
   app.module.ts           configuração, conexão com o banco, módulos

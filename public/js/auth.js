@@ -1,3 +1,5 @@
+import { goTo } from './navigation.js';
+
 /**
  * Sessão no navegador. Com AUTH_ENABLED=true, a API exige um token em toda
  * requisição: no cabeçalho Authorization (fetch) ou em ?token= (EventSource,
@@ -42,7 +44,7 @@ export async function apiFetch(url, options = {}) {
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401) {
     clearSession();
-    window.location.href = '/login.html';
+    goTo('/login.html');
     throw new Error('Não autenticado');
   }
   return res;
@@ -58,6 +60,6 @@ export function withToken(url) {
 /** Com a autenticação ligada e sem token, vai para o login. Devolve se está ligada. */
 export async function requireAuth() {
   const { enabled } = await authStatus();
-  if (enabled && !getToken()) window.location.href = '/login.html';
+  if (enabled && !getToken()) goTo('/login.html');
   return enabled;
 }

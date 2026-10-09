@@ -1,13 +1,21 @@
 import { authStatus, setSession } from './auth.js';
+import { goTo } from './navigation.js';
 import { apiError } from './util.js';
-
-const { enabled } = await authStatus();
-if (!enabled) window.location.href = '/';
 
 const form = document.getElementById('login-form');
 const err = document.getElementById('err');
 
-form.addEventListener('submit', async (e) => {
+/** Com a autenticação desligada não há o que fazer aqui: vai direto ao dashboard. */
+async function initLogin() {
+  const { enabled } = await authStatus();
+  if (!enabled) {
+    goTo('/');
+    return;
+  }
+  form.addEventListener('submit', submit);
+}
+
+async function submit(e) {
   e.preventDefault();
   err.hidden = true;
   const body = {
@@ -28,9 +36,12 @@ form.addEventListener('submit', async (e) => {
     }
     const data = await res.json();
     setSession(data.token, data.user.username);
-    window.location.href = '/';
+    goTo('/');
   } catch {
     err.textContent = 'Sem conexão com o servidor.';
     err.hidden = false;
   }
-});
+}
+
+/** Concluída quando a página está pronta (os testes esperam por ela). */
+export const ready = initLogin();

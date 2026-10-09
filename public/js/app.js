@@ -9,6 +9,7 @@ import {
   tagsInAlarm,
 } from './dashboard.js';
 import { initMetrics, stopMetricsRefresh } from './metrics.js';
+import { goTo } from './navigation.js';
 import { initSynoptic, setSynopticAlarms, updateSynoptic } from './synoptic.js';
 
 const connDot = document.getElementById('conn-dot');
@@ -74,7 +75,7 @@ async function bootstrap() {
     logout.hidden = false;
     logout.onclick = () => {
       clearSession();
-      window.location.href = '/login.html';
+      goTo('/login.html');
     };
   }
 
@@ -99,4 +100,5 @@ async function bootstrap() {
   connectStream();
 }
 
-void authStatus().then(bootstrap);
+/** Concluída quando o dashboard está pronto (os testes esperam por ela). */
+export const ready = authStatus().then(bootstrap);

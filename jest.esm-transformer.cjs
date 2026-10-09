@@ -1,11 +1,13 @@
 /**
- * Transformador do Jest para dependências publicadas só em ESM.
+ * Transformador do Jest para código JavaScript em ESM (`import`/`export`).
  *
- * Em tempo de execução o Node (22.13+) carrega essas dependências normalmente,
- * mas o Jest roda o projeto em CommonJS e não entende `import`/`export`. Este
- * transformador converte apenas os pacotes listados em transformIgnorePatterns
- * (package.json) para CommonJS, com esModuleInterop: o código ESM usa
- * importações padrão de módulos CommonJS (ex: `import os from "node:os"`).
+ * O Jest roda em CommonJS e não entende `import`/`export`. Este transformador
+ * converte para CommonJS, com esModuleInterop (o código ESM usa importações
+ * padrão de módulos CommonJS, ex: `import os from "node:os"`):
+ * - no backend, só as dependências publicadas apenas em ESM, listadas em
+ *   transformIgnorePatterns (em tempo de execução, o Node 22.13+ as carrega
+ *   normalmente);
+ * - no frontend, os módulos de public/js e os próprios testes.
  */
 const { createHash } = require('crypto');
 const ts = require('typescript');
@@ -26,12 +28,16 @@ module.exports = {
     });
     return { code: outputText };
   },
-  getCacheKey(sourceText, sourcePath) {
+  // `instrument` entra na chave: com cobertura (--coverage), o Jest instrumenta
+  // o resultado; sem ela no cache, reaproveitaria o código não instrumentado
+  // de uma execução comum e a cobertura sairia zerada.
+  getCacheKey(sourceText, sourcePath, options = {}) {
     return createHash('sha1')
       .update(ts.version)
       .update(JSON.stringify(compilerOptions))
       .update(sourcePath)
       .update(sourceText)
+      .update(String(Boolean(options.instrument)))
       .digest('hex');
   },
 };

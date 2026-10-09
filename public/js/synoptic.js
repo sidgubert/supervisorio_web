@@ -1,4 +1,5 @@
 import { apiFetch } from './auth.js';
+import { arrowStep, clampPosition, fillFraction, screenToDrawing } from './synoptic-geometry.js';
 import { apiError, esc, fmtNum } from './util.js';
 
 /**
@@ -81,9 +82,10 @@ export async function initSynoptic(inAlarm = new Set()) {
       })
       .join('');
 
-  for (const cfg of configs) {
-    const el = svg.querySelector(`.syn-node[data-tag="${CSS.escape(cfg.tag)}"]`);
-    if (!el) continue;
+  // Os desenhos saem na mesma ordem do cadastro.
+  const elements = svg.querySelectorAll('.syn-node');
+  configs.forEach((cfg, i) => {
+    const el = elements[i];
     el.querySelector('.syn-label').textContent = cfg.description || cfg.tag; // textContent: sem HTML
     el.addEventListener('click', () => {
       if (!editing) location.hash = 'dashboard';
@@ -91,7 +93,7 @@ export async function initSynoptic(inAlarm = new Set()) {
     const node = { el, cfg, x: cfg.synopticX ?? 50, y: cfg.synopticY ?? 50 };
     nodes.set(cfg.tag, node);
     el.classList.toggle('syn-node--alarm', inAlarm.has(cfg.tag));
-  }
+  });
   applyEditing();
 
   const latest = await apiFetch('/api/dashboard/tags');
@@ -107,13 +109,7 @@ export function updateSynoptic(s) {
   const fill = node.el.querySelector('.syn-fill');
   const geo = FILL[node.cfg.synopticKind];
   if (fill && geo) {
-    // Preenchimento proporcional à faixa de engenharia (engMin–engMax).
-    const { engMin, engMax } = node.cfg;
-    const pct =
-      engMin !== null && engMax !== null && engMax > engMin
-        ? Math.min(1, Math.max(0, (s.value - engMin) / (engMax - engMin)))
-        : 0.5;
-    const h = pct * geo.height;
+    const h = fillFraction(s.value, node.cfg.engMin, node.cfg.engMax) * geo.height;
     fill.setAttribute('height', String(h));
     fill.setAttribute('y', String(geo.bottom - h));
   }
@@ -154,30 +150,16 @@ function place(node, x, y) {
   node.el.setAttribute('transform', `translate(${x},${y})`);
 }
 
-/**
- * Move para (x, y) arredondado à grade de 1% (o cadastro guarda inteiros de
- * 0 a 100) e limitado para o desenho inteiro, com o rótulo, ficar dentro da área.
- */
+/** Move na grade de 1%, com o desenho inteiro (e o rótulo) dentro da área. */
 function moveTo(node, x, y) {
-  const limit = (v, offset, size) => {
-    let min = 0;
-    let max = 100;
-    if (node.box) {
-      min = Math.max(0, Math.ceil(-offset));
-      max = Math.min(100, Math.floor(100 - offset - size));
-      if (min > max) [min, max] = [0, 100]; // desenho maior que a área
-    }
-    return Math.min(max, Math.max(min, Math.round(v)));
-  };
-  const b = node.box;
-  place(node, limit(x, b?.x ?? 0, b?.width ?? 0), limit(y, b?.y ?? 0, b?.height ?? 0));
+  const p = clampPosition(x, y, node.box);
+  place(node, p.x, p.y);
 }
 
 /** Ponto do mouse/toque na escala do desenho (viewBox 0–100). */
 function toSvg(evt) {
   const ctm = svg.getScreenCTM();
-  if (!ctm) return null;
-  return new DOMPoint(evt.clientX, evt.clientY).matrixTransform(ctm.inverse());
+  return ctm ? screenToDrawing(ctm, evt.clientX, evt.clientY) : null;
 }
 
 /**
@@ -294,17 +276,14 @@ function endDrag(e, cancelled) {
 svg.addEventListener('pointerup', (e) => endDrag(e, false));
 svg.addEventListener('pointercancel', (e) => endDrag(e, true));
 
-const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-
 svg.addEventListener('keydown', (e) => {
-  const step = ARROWS[e.key];
+  const step = arrowStep(e.key, e.shiftKey);
   const node = editing && step && !drag ? nodeOf(e.target) : undefined;
   if (!node) return;
   e.preventDefault();
-  const size = e.shiftKey ? 5 : 1;
   // Várias setas seguidas viram uma gravação só, a partir da posição inicial.
   node.keyFrom ??= { x: node.x, y: node.y };
-  moveTo(node, node.x + step[0] * size, node.y + step[1] * size);
+  moveTo(node, node.x + step.dx, node.y + step.dy);
   clearTimeout(node.keyTimer);
   node.keyTimer = setTimeout(() => {
     save(node, node.keyFrom);
