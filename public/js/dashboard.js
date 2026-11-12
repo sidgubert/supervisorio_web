@@ -130,8 +130,8 @@ function createChartCard(tag, source) {
       datasets: [
         {
           data: [],
-          borderColor: '#58a6ff',
-          backgroundColor: 'rgba(88,166,255,0.08)',
+          borderColor: '#0969da',
+          backgroundColor: 'rgba(9,105,218,0.08)',
           borderWidth: 2,
           pointRadius: 0,
           tension: 0.3,
@@ -146,12 +146,12 @@ function createChartCard(tag, source) {
       plugins: { legend: { display: false } },
       scales: {
         x: {
-          ticks: { color: '#8b949e', maxTicksLimit: 5, font: { size: 10 } },
-          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: '#59636e', maxTicksLimit: 5, font: { size: 10 } },
+          grid: { color: 'rgba(208,215,222,0.7)' },
         },
         y: {
-          ticks: { color: '#8b949e', font: { size: 10 } },
-          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: '#59636e', font: { size: 10 } },
+          grid: { color: 'rgba(208,215,222,0.7)' },
         },
       },
     },
