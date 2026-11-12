@@ -26,27 +26,27 @@ const KEY_SAVE_DELAY_MS = 500;
 
 const SHAPES = {
   tank: `
-    <rect x="-8" y="-6" width="16" height="12" rx="2" fill="#21262d" stroke="#58a6ff" stroke-width="0.4"/>
-    <rect class="syn-fill" x="-7" y="5" width="14" height="0" fill="#58a6ff" opacity="0.5"/>
-    <text class="syn-val" y="1.5" text-anchor="middle" font-size="2.8" fill="#e6edf3">—</text>
-    <text class="syn-label" y="-7.5" text-anchor="middle" font-size="2" fill="#8b949e"></text>`,
+    <rect x="-8" y="-6" width="16" height="12" rx="2" fill="#eef1f4" stroke="#0969da" stroke-width="0.4"/>
+    <rect class="syn-fill" x="-7" y="5" width="14" height="0" fill="#0969da" opacity="0.5"/>
+    <text class="syn-val" y="1.5" text-anchor="middle" font-size="2.8" fill="#1f2328">—</text>
+    <text class="syn-label" y="-7.5" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
   pressure: `
-    <circle r="5" fill="#21262d" stroke="#f0883e" stroke-width="0.4"/>
-    <text class="syn-val" y="1.2" text-anchor="middle" font-size="2.5" fill="#e6edf3">—</text>
-    <text class="syn-label" y="-6.5" text-anchor="middle" font-size="2" fill="#8b949e"></text>`,
+    <circle r="5" fill="#eef1f4" stroke="#bc4c00" stroke-width="0.4"/>
+    <text class="syn-val" y="1.2" text-anchor="middle" font-size="2.5" fill="#1f2328">—</text>
+    <text class="syn-label" y="-6.5" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
   flow: `
-    <polygon points="-6,0 6,0 3,-4 -3,-4" fill="#21262d" stroke="#3fb950" stroke-width="0.4"/>
-    <text class="syn-val" y="3" text-anchor="middle" font-size="2.5" fill="#e6edf3">—</text>
-    <text class="syn-label" y="-6" text-anchor="middle" font-size="2" fill="#8b949e"></text>`,
+    <polygon points="-6,0 6,0 3,-4 -3,-4" fill="#eef1f4" stroke="#1a7f37" stroke-width="0.4"/>
+    <text class="syn-val" y="3" text-anchor="middle" font-size="2.5" fill="#1f2328">—</text>
+    <text class="syn-label" y="-6" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
   level: `
-    <rect x="-4" y="-8" width="8" height="16" rx="1" fill="#21262d" stroke="#a371f7" stroke-width="0.4"/>
-    <rect class="syn-fill" x="-3" y="7" width="6" height="0" fill="#a371f7" opacity="0.6"/>
-    <text class="syn-val" y="11" text-anchor="middle" font-size="2.2" fill="#e6edf3">—</text>
-    <text class="syn-label" y="-10" text-anchor="middle" font-size="2" fill="#8b949e"></text>`,
+    <rect x="-4" y="-8" width="8" height="16" rx="1" fill="#eef1f4" stroke="#8250df" stroke-width="0.4"/>
+    <rect class="syn-fill" x="-3" y="7" width="6" height="0" fill="#8250df" opacity="0.6"/>
+    <text class="syn-val" y="11" text-anchor="middle" font-size="2.2" fill="#1f2328">—</text>
+    <text class="syn-label" y="-10" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
   sensor: `
-    <rect x="-5" y="-3.5" width="10" height="7" rx="1" fill="#21262d" stroke="#8b949e" stroke-width="0.35"/>
-    <text class="syn-val" y="1.2" text-anchor="middle" font-size="2.2" fill="#e6edf3">—</text>
-    <text class="syn-label" y="-5.5" text-anchor="middle" font-size="1.8" fill="#8b949e"></text>`,
+    <rect x="-5" y="-3.5" width="10" height="7" rx="1" fill="#eef1f4" stroke="#59636e" stroke-width="0.35"/>
+    <text class="syn-val" y="1.2" text-anchor="middle" font-size="2.2" fill="#1f2328">—</text>
+    <text class="syn-label" y="-5.5" text-anchor="middle" font-size="1.8" fill="#59636e"></text>`,
 };
 
 /** Altura útil do preenchimento de cada desenho (tanque e nível). */
@@ -73,7 +73,7 @@ export async function initSynoptic(inAlarm = new Set()) {
   nodes.clear();
   svg.innerHTML =
     GRID +
-    '<text x="50" y="6" text-anchor="middle" font-size="3" fill="#8b949e">Processo</text>' +
+    '<text x="50" y="6" text-anchor="middle" font-size="3" fill="#59636e">Processo</text>' +
     configs
       .map((c) => {
         const x = c.synopticX ?? 50;

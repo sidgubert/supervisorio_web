@@ -1,17 +1,17 @@
 :root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --border: #30363d;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #58a6ff;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --alarm: #f85149;
-  --sim: #a371f7;
-  --mqtt: #39d353;
-  --modbus: #f0883e;
-  --opcua: #79c0ff;
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --muted: #59636e;
+  --accent: #0969da;
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --alarm: #cf222e;
+  --sim: #8250df;
+  --mqtt: #2da44e;
+  --modbus: #bc4c00;
+  --opcua: #0550ae;
 }
 
 * {
@@ -58,7 +58,7 @@ body {
 }
 .nav__link--active {
   color: var(--accent);
-  background: rgba(88, 166, 255, 0.1);
+  background: rgba(9, 105, 218, 0.1);
 }
 
 .user-label {
@@ -222,7 +222,7 @@ body {
   font-weight: 500;
 }
 .data-table tr.row--active {
-  background: rgba(248, 81, 73, 0.06);
+  background: rgba(207, 34, 46, 0.06);
 }
 
 .sev {
@@ -462,7 +462,7 @@ body {
 }
 
 .badge--alarm {
-  background: rgba(248, 81, 73, 0.15);
+  background: rgba(207, 34, 46, 0.15);
   color: var(--alarm);
 }
 
@@ -519,19 +519,19 @@ body {
 }
 
 .source-pill--sim {
-  background: rgba(163, 113, 247, 0.2);
+  background: rgba(130, 80, 223, 0.2);
   color: var(--sim);
 }
 .source-pill--mqtt {
-  background: rgba(57, 211, 83, 0.15);
+  background: rgba(45, 164, 78, 0.15);
   color: var(--mqtt);
 }
 .source-pill--modbus {
-  background: rgba(240, 136, 62, 0.15);
+  background: rgba(188, 76, 0, 0.15);
   color: var(--modbus);
 }
 .source-pill--opcua {
-  background: rgba(121, 192, 255, 0.15);
+  background: rgba(5, 80, 174, 0.15);
   color: var(--opcua);
 }
 
@@ -562,14 +562,14 @@ body {
   padding: 0.65rem 0.75rem;
   border-radius: 6px;
   border-left: 4px solid var(--warn);
-  background: rgba(210, 153, 34, 0.08);
+  background: rgba(154, 103, 0, 0.08);
   font-size: 0.8rem;
 }
 
 .alarm-item--hh,
 .alarm-item--ll {
   border-left-color: var(--alarm);
-  background: rgba(248, 81, 73, 0.1);
+  background: rgba(207, 34, 46, 0.1);
 }
 
 .alarm-item__tag {

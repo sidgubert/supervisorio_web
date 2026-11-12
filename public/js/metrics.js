@@ -6,10 +6,10 @@ let refreshTimer;
 let bound = false;
 
 const SOURCE_COLORS = {
-  sim: '#a371f7',
-  mqtt: '#39d353',
-  modbus: '#f0883e',
-  opcua: '#79c0ff',
+  sim: '#8250df',
+  mqtt: '#2da44e',
+  modbus: '#bc4c00',
+  opcua: '#0550ae',
 };
 
 function kpi(label, value, sub = '') {
@@ -44,7 +44,7 @@ function renderIngest({ ingest, process, retention }) {
 function updateThroughputChart(bySource) {
   const labels = Object.keys(bySource);
   const data = labels.map((s) => bySource[s].samplesPerSec);
-  const colors = labels.map((l) => SOURCE_COLORS[l] ?? '#8b949e');
+  const colors = labels.map((l) => SOURCE_COLORS[l] ?? '#59636e');
 
   if (!throughputChart) {
     throughputChart = new Chart(document.getElementById('throughput-chart'), {
@@ -66,8 +66,8 @@ function updateThroughputChart(bySource) {
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
-          y: { ticks: { color: '#8b949e' }, grid: { color: '#30363d' }, beginAtZero: true },
+          x: { ticks: { color: '#59636e' }, grid: { color: '#d0d7de' } },
+          y: { ticks: { color: '#59636e' }, grid: { color: '#d0d7de' }, beginAtZero: true },
         },
       },
     });
