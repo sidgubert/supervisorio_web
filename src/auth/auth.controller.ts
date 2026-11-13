@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,6 +10,8 @@ import {
   Post,
 } from '@nestjs/common';
 import { IsString, MaxLength } from 'class-validator';
+import { ChangePasswordDto } from '../users/dto/user.dto';
+import { UsersService } from '../users/users.service';
 import { CurrentUser } from './auth.guard';
 import { AuthService, AuthUser } from './auth.service';
 import { Public } from './public.decorator';
@@ -31,7 +34,10 @@ export const LOGIN_WINDOW_MS = 60_000;
 export class AuthController {
   private readonly attempts = new Map<string, { count: number; resetAt: number }>();
 
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly users: UsersService,
+  ) {}
 
   /** Se a autenticação está ligada (o frontend decide se mostra o login). */
   @Public()
@@ -49,15 +55,30 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  login(@Body() body: LoginDto, @Ip() ip: string) {
+  async login(@Body() body: LoginDto, @Ip() ip: string) {
     this.checkRateLimit(ip);
     return this.auth.login(body.username, body.password);
   }
 
-  /** Quem está autenticado (401 sem token válido). */
+  /** Quem está autenticado, com o perfil (401 sem token válido). */
   @Get('me')
   me(@CurrentUser() user?: AuthUser) {
     return user;
+  }
+
+  /** Troca a própria senha, exigindo a atual (mesmo limite de tentativas do login). */
+  @Post('password')
+  @HttpCode(204)
+  async changePassword(
+    @Body() body: ChangePasswordDto,
+    @Ip() ip: string,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    this.checkRateLimit(ip);
+    if (!this.auth.isEnabled() || !user) {
+      throw new BadRequestException('A autenticação está desligada.');
+    }
+    await this.users.changePassword(user.username, body.current, body.password);
   }
 
   private checkRateLimit(ip: string) {

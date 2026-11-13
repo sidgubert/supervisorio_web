@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Roles } from '../auth/roles.decorator';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
 import { TagsService } from './tags.service';
@@ -20,18 +21,21 @@ export class TagsController {
   }
 
   /** Cadastra uma tag; 409 se já existir. */
+  @Roles('engineer')
   @Post()
   create(@Body() dto: CreateTagDto) {
     return this.tags.create(dto);
   }
 
   /** Altera campos de uma tag (ausente = mantém; null = apaga). */
+  @Roles('engineer')
   @Patch(':tag')
   update(@Param('tag') tag: string, @Body() dto: UpdateTagDto) {
     return this.tags.update(tag, dto);
   }
 
   /** Remove a tag do cadastro. O histórico de medições é mantido. */
+  @Roles('engineer')
   @Delete(':tag')
   @HttpCode(204)
   remove(@Param('tag') tag: string) {

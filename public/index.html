@@ -20,9 +20,11 @@
         <a href="#alarms" class="nav__link" data-view="alarms">Histórico de alarmes</a>
         <a href="#metrics" class="nav__link" data-view="metrics">Métricas</a>
         <a href="#config" class="nav__link" data-view="config">Configuração</a>
+        <a href="#account" class="nav__link" data-view="account" hidden>Conta</a>
       </nav>
       <div class="header__status">
         <span id="user-label" class="user-label"></span>
+        <span id="role-label" class="badge" hidden></span>
         <span id="conn-dot" class="conn-dot conn-dot--off"></span>
         <span id="conn-label">Conectando…</span>
         <button id="logout-btn" class="btn btn--ghost" hidden>Sair</button>
@@ -114,6 +116,87 @@
         <span class="muted">Limites de alarme, unidade e posição no sinótico</span>
       </div>
       <div id="config-list" class="config-list"></div>
+    </main>
+
+    <main id="view-account" class="view account-view" hidden>
+      <div class="panel-head">
+        <h2>Conta</h2>
+        <span id="account-who" class="muted"></span>
+      </div>
+      <form id="password-form" class="config-card account-card">
+        <h3>Trocar senha</h3>
+        <div class="config-grid">
+          <label>
+            Senha atual
+            <input name="current" type="password" autocomplete="current-password" required />
+          </label>
+          <label>
+            Nova senha (mínimo 8 caracteres)
+            <input
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              minlength="8"
+              maxlength="200"
+              required
+            />
+          </label>
+        </div>
+        <button type="submit" class="btn">Trocar senha</button>
+        <span class="config-msg" role="status"></span>
+      </form>
+
+      <section id="users-section" hidden>
+        <div class="panel-head">
+          <h2>Usuários</h2>
+          <span class="muted">Visível só para administradores</span>
+        </div>
+        <form id="user-form" class="config-card account-card">
+          <h3>Novo usuário</h3>
+          <div class="config-grid">
+            <label>
+              Usuário
+              <input name="username" autocomplete="off" minlength="3" maxlength="50" required />
+            </label>
+            <label>
+              Senha (mínimo 8 caracteres)
+              <input
+                name="password"
+                type="password"
+                autocomplete="new-password"
+                minlength="8"
+                maxlength="200"
+                required
+              />
+            </label>
+            <label>
+              Perfil
+              <select name="role">
+                <option value="viewer">Visualizador (só acompanha)</option>
+                <option value="operator" selected>Operador (reconhece alarmes)</option>
+                <option value="engineer">Engenheiro (altera tags)</option>
+                <option value="admin">Administrador (gerencia usuários)</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="btn">Criar usuário</button>
+          <span id="users-msg" class="config-msg" role="status"></span>
+        </form>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Usuário</th>
+                <th>Perfil</th>
+                <th>Situação</th>
+                <th>Criado em</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+      </section>
     </main>
 
     <main id="view-metrics" class="view metrics-view" hidden>

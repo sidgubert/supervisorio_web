@@ -1,4 +1,4 @@
-import { apiFetch } from './auth.js';
+import { apiFetch, can } from './auth.js';
 import { apiError, esc, fmtNum, fmtTime, LEVEL_LABEL, STATE_LABEL } from './util.js';
 
 /** Pontos por gráfico (com amostras a cada 1 s, os últimos 2 min). */
@@ -59,7 +59,7 @@ function renderAlarms() {
   const unacked = items.filter((a) => !a.ackedAt).length;
   alarmCount.textContent = `${items.length} aberto${items.length !== 1 ? 's' : ''}`;
   alarmCount.classList.toggle('badge--alarm', items.length > 0);
-  ackAllBtn.hidden = unacked === 0;
+  ackAllBtn.hidden = unacked === 0 || !can('operator');
 
   if (items.length === 0) {
     alarmsList.innerHTML = '<p class="empty-state">Nenhum alarme aberto.</p>';
@@ -83,7 +83,7 @@ function renderAlarms() {
               a.clearedAt ? ` · normalizou ${fmtTime(a.clearedAt)}` : ''
             }</div>
             ${
-              a.ackedAt
+              a.ackedAt || !can('operator')
                 ? ''
                 : `<div class="alarm-item__actions"><button class="btn btn--sm" data-ack="${esc(a.id)}">Reconhecer</button></div>`
             }

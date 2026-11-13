@@ -49,14 +49,14 @@ afterEach(() => {
   delete window.Chart;
 });
 
-async function openApp({ enabled = false, routes = {} } = {}) {
+async function openApp({ enabled = false, role = 'admin', routes = {} } = {}) {
   loadPage();
   const api = mockApi({
     'GET /api/auth/status': { enabled },
     'GET /api/dashboard/alarms': { alarms: [], tags: TAGS },
     'GET /api/dashboard/tags': [],
     'GET /api/tags': TAGS,
-    'GET /api/auth/me': { username: 'operador' },
+    'GET /api/auth/me': { username: 'operador', role },
     ...routes,
   });
   const app = await loadModule('app.js');
@@ -169,9 +169,11 @@ describe('tempo real (SSE)', () => {
 
   it('se a conexão cai, avisa e confere se a sessão ainda vale', async () => {
     const api = await openApp();
+    // A primeira consulta é a da abertura (perfil do usuário).
+    expect(requestsTo(api, 'GET', '/api/auth/me')).toHaveLength(1);
     FakeEventSource.last.onerror();
     expect(screen.getByText('Reconectando…')).toBeInTheDocument();
-    await waitFor(() => expect(requestsTo(api, 'GET', '/api/auth/me')).toHaveLength(1));
+    await waitFor(() => expect(requestsTo(api, 'GET', '/api/auth/me')).toHaveLength(2));
   });
 });
 
@@ -182,6 +184,7 @@ describe('com autenticação', () => {
     await openApp({ enabled: true });
 
     expect(screen.getByText('operador')).toBeInTheDocument();
+    expect(screen.getByText('Administrador')).toBeInTheDocument();
     expect(FakeEventSource.last.url).toBe('/api/dashboard/stream?token=tok');
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sair' }));
@@ -197,5 +200,86 @@ describe('com autenticação', () => {
   it('com a autenticação desligada, não mostra "Sair"', async () => {
     await openApp();
     expect(screen.queryByRole('button', { name: 'Sair' })).toBeNull();
+  });
+});
+
+const ALARM = {
+  id: 'a1',
+  tag: 'TIC-101.PV',
+  level: 'H',
+  priority: 1,
+  limitValue: 90,
+  raisedValue: 91,
+  raisedAt: '2026-10-09T12:00:00Z',
+  clearedAt: null,
+  ackedAt: null,
+  state: 'ACTIVE_UNACKED',
+};
+
+describe('perfis de acesso', () => {
+  const withAlarm = { 'GET /api/dashboard/alarms': { alarms: [ALARM], tags: TAGS } };
+  const session = () => localStorage.setItem('talos_token', 'tok');
+
+  it('visualizador não vê reconhecimento, Configuração nem edição do sinótico', async () => {
+    session();
+    await openApp({ enabled: true, role: 'viewer', routes: withAlarm });
+
+    expect(screen.getByText('1 aberto')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reconhecer' })).toBeNull();
+    expect(document.getElementById('ack-all')).not.toBeVisible();
+    expect(navLink('Gráficos')).toBeVisible();
+    expect(document.querySelector('[data-view="config"]')).not.toBeVisible();
+    expect(document.getElementById('synoptic-edit')).toHaveAttribute('hidden');
+
+    // O endereço direto da tela também não abre.
+    window.location.hash = 'config';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(view('config')).not.toBeVisible();
+    expect(view('dashboard')).toBeVisible();
+  });
+
+  it('operador reconhece alarmes, mas não altera tags', async () => {
+    session();
+    await openApp({ enabled: true, role: 'operator', routes: withAlarm });
+
+    expect(screen.getByRole('button', { name: 'Reconhecer' })).toBeVisible();
+    expect(document.getElementById('ack-all')).toBeVisible();
+    expect(document.querySelector('[data-view="config"]')).not.toBeVisible();
+    expect(document.getElementById('synoptic-edit')).toHaveAttribute('hidden');
+  });
+
+  it('engenheiro altera tags; a tela Conta abre a troca de senha, sem os usuários', async () => {
+    session();
+    const api = await openApp({ enabled: true, role: 'engineer' });
+
+    expect(navLink('Configuração')).toBeVisible();
+    expect(document.getElementById('synoptic-edit')).not.toHaveAttribute('hidden');
+
+    await userEvent.setup().click(navLink('Conta'));
+    await waitFor(() => expect(view('account')).toBeVisible());
+    expect(screen.getByText('operador · Engenheiro')).toBeInTheDocument();
+    expect(document.getElementById('users-section')).not.toBeVisible();
+    expect(requestsTo(api, 'GET', '/api/users')).toHaveLength(0);
+  });
+
+  it('administrador vê os usuários na tela Conta', async () => {
+    session();
+    const api = await openApp({ enabled: true, routes: { 'GET /api/users': [] } });
+
+    await userEvent.setup().click(navLink('Conta'));
+    await waitFor(() => expect(document.getElementById('users-section')).toBeVisible());
+    expect(requestsTo(api, 'GET', '/api/users')).toHaveLength(1);
+  });
+
+  it('com a autenticação desligada, tudo fica liberado e não há tela Conta', async () => {
+    await openApp({ routes: withAlarm });
+
+    expect(screen.getByRole('button', { name: 'Reconhecer' })).toBeVisible();
+    expect(navLink('Configuração')).toBeVisible();
+    expect(document.querySelector('[data-view="account"]')).not.toBeVisible();
+
+    window.location.hash = 'account';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(view('account')).not.toBeVisible();
   });
 });

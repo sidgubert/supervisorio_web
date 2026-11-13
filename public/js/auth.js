@@ -26,6 +26,23 @@ export function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
+/**
+ * Perfis, do menor para o maior privilégio (iguais aos de src/users/role.ts).
+ * Quem decide é a API (403); aqui o perfil só serve para o painel não oferecer
+ * o que seria recusado.
+ */
+const ROLES = ['viewer', 'operator', 'engineer', 'admin'];
+let role;
+
+export function setRole(value) {
+  role = value;
+}
+
+/** Se o perfil atual alcança o exigido. Antes de o perfil ser conhecido, não esconde nada. */
+export function can(required) {
+  return !role || ROLES.indexOf(role) >= ROLES.indexOf(required);
+}
+
 let statusPromise;
 
 /** { enabled }: se a autenticação está ligada (consultado uma vez por página). */

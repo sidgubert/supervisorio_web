@@ -4,6 +4,7 @@ import { Alarm } from '../alarms/alarm.entity';
 import { Env } from '../config/env.validation';
 import { Measurement } from '../measurements/measurement.entity';
 import { Tag } from '../tags/tag.entity';
+import { User } from '../users/user.entity';
 
 /** Variáveis de ambiente necessárias para conectar ao banco. */
 export type DbEnv = Pick<Env, 'DB_HOST' | 'DB_PORT' | 'DB_USER' | 'DB_PASSWORD' | 'DB_NAME'>;
@@ -21,7 +22,7 @@ export function buildDataSourceOptions(env: DbEnv): DataSourceOptions {
     username: env.DB_USER,
     password: env.DB_PASSWORD,
     database: env.DB_NAME,
-    entities: [Measurement, Tag, Alarm],
+    entities: [Measurement, Tag, Alarm, User],
     // .ts no CLI (ts-node), .js na API compilada (dist/).
     migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
     migrationsTableName: 'migrations',

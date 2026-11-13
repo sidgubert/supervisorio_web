@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { CurrentUser } from '../auth/auth.guard';
+import { Roles } from '../auth/roles.decorator';
 import { ANONYMOUS, AuthUser } from '../auth/auth.service';
 import { AlarmsService } from './alarms.service';
 
@@ -58,6 +59,7 @@ export class AlarmsController {
   }
 
   /** Reconhece um alarme (404 se não estiver aberto). */
+  @Roles('operator')
   @Post(':id/ack')
   @HttpCode(200)
   ack(
@@ -69,6 +71,7 @@ export class AlarmsController {
   }
 
   /** Reconhece todos os alarmes abertos. */
+  @Roles('operator')
   @Post('ack-all')
   @HttpCode(200)
   ackAll(@Body() body: AckDto, @CurrentUser() user?: AuthUser) {

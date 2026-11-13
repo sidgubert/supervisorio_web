@@ -1,5 +1,15 @@
+import { initAccount } from './account.js';
 import { refreshAlarmHistory, initAlarmHistory } from './alarms-history.js';
-import { apiFetch, authStatus, clearSession, getUser, requireAuth, withToken } from './auth.js';
+import {
+  apiFetch,
+  authStatus,
+  can,
+  clearSession,
+  getUser,
+  requireAuth,
+  setRole,
+  withToken,
+} from './auth.js';
 import { initConfig } from './config.js';
 import {
   handleAlarm,
@@ -11,10 +21,13 @@ import {
 import { initMetrics, stopMetricsRefresh } from './metrics.js';
 import { goTo } from './navigation.js';
 import { initSynoptic, setSynopticAlarms, updateSynoptic } from './synoptic.js';
+import { ROLE_LABEL } from './util.js';
 
 const connDot = document.getElementById('conn-dot');
 const connLabel = document.getElementById('conn-label');
 let currentView = 'dashboard';
+let authEnabled = false;
+let me = null;
 
 function setConnection(on, label) {
   connDot.classList.toggle('conn-dot--on', on);
@@ -33,14 +46,29 @@ function showView(name) {
   });
   if (name === 'alarms') void refreshAlarmHistory();
   if (name === 'config') void initConfig();
+  if (name === 'account') void initAccount(me);
   if (name === 'synoptic') void initSynoptic(tagsInAlarm());
   if (name === 'metrics') initMetrics();
   else stopMetricsRefresh();
 }
 
+/** Telas que dependem do perfil ou do login; as demais são de todos. */
+function allowed(name) {
+  if (name === 'config') return can('engineer');
+  if (name === 'account') return authEnabled;
+  return true;
+}
+
 function route() {
   const name = location.hash.replace('#', '') || 'dashboard';
-  showView(document.getElementById(`view-${name}`) ? name : 'dashboard');
+  showView(document.getElementById(`view-${name}`) && allowed(name) ? name : 'dashboard');
+}
+
+/** Esconde o que o perfil não pode usar (a API recusaria com 403). */
+function applyPermissions() {
+  document.querySelector('.nav__link[data-view="config"]').hidden = !can('engineer');
+  document.querySelector('.nav__link[data-view="account"]').hidden = !authEnabled;
+  document.getElementById('synoptic-edit').hidden = !can('engineer');
 }
 
 /**
@@ -69,8 +97,18 @@ function connectStream() {
 
 async function bootstrap() {
   const enabled = await requireAuth();
+  authEnabled = enabled;
+  // O perfil vem da API, não do navegador: vale o que estiver cadastrado agora.
+  me = await apiFetch('/api/auth/me')
+    .then((res) => (res.ok ? res.json() : null))
+    .catch(() => null);
+  setRole(me?.role);
+  applyPermissions();
   if (enabled) {
-    document.getElementById('user-label').textContent = getUser() ?? '';
+    document.getElementById('user-label').textContent = me?.username ?? getUser() ?? '';
+    const roleLabel = document.getElementById('role-label');
+    roleLabel.textContent = ROLE_LABEL[me?.role] ?? '';
+    roleLabel.hidden = !roleLabel.textContent;
     const logout = document.getElementById('logout-btn');
     logout.hidden = false;
     logout.onclick = () => {
