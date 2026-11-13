@@ -66,12 +66,21 @@
           </button>
         </div>
       </div>
-      <p class="muted synoptic-hint">
-        O desenho de cada tag é escolhido em Configuração; a posição, arrastando o instrumento em
-        "Editar posições".
-      </p>
-      <div class="synoptic-wrap">
-        <svg id="synoptic-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="synoptic-layout">
+        <div class="synoptic-wrap">
+          <svg id="synoptic-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <aside class="queue" aria-labelledby="queue-title">
+          <div class="queue__head">
+            <h3 id="queue-title">Fila de prioridade</h3>
+            <span>Leitura atual</span>
+          </div>
+          <ol id="synoptic-queue" class="queue__list"></ol>
+          <p class="queue__hint">
+            O desenho de cada tag é escolhido em Configuração; a posição, arrastando o instrumento
+            em "Editar posições".
+          </p>
+        </aside>
       </div>
     </main>
 

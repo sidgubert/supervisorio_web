@@ -52,3 +52,22 @@ export function fillFraction(value, engMin, engMax) {
   if (!hasRange || !Number.isFinite(value)) return 0.5;
   return Math.min(1, Math.max(0, (value - engMin) / (engMax - engMin)));
 }
+
+/** Fração da faixa de engenharia que conta como "perto do limite". */
+const NEAR_LIMIT = 0.05;
+
+/**
+ * Estado de uma leitura para a fila de prioridade: 'alarm' (alarme ativo),
+ * 'warn' (a menos de 5% da faixa de um limite configurado), 'ok' ou 'none'
+ * (sem leitura). Sem faixa de engenharia, a margem é 5% do próprio limite.
+ */
+export function readingState(value, cfg, inAlarm) {
+  if (inAlarm) return 'alarm';
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'none';
+  const span = cfg.engMax - cfg.engMin;
+  const margin = (limit) => NEAR_LIMIT * (span > 0 ? span : Math.abs(limit));
+  const isLimit = (v) => typeof v === 'number' && Number.isFinite(v);
+  const nearHigh = [cfg.alarmH, cfg.alarmHH].some((l) => isLimit(l) && value >= l - margin(l));
+  const nearLow = [cfg.alarmL, cfg.alarmLL].some((l) => isLimit(l) && value <= l + margin(l));
+  return nearHigh || nearLow ? 'warn' : 'ok';
+}

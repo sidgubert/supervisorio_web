@@ -1,5 +1,11 @@
 import { apiFetch } from './auth.js';
-import { arrowStep, clampPosition, fillFraction, screenToDrawing } from './synoptic-geometry.js';
+import {
+  arrowStep,
+  clampPosition,
+  fillFraction,
+  readingState,
+  screenToDrawing,
+} from './synoptic-geometry.js';
 import { apiError, esc, fmtNum } from './util.js';
 
 /**
@@ -16,7 +22,10 @@ import { apiError, esc, fmtNum } from './util.js';
 const svg = document.getElementById('synoptic-svg');
 const editBtn = document.getElementById('synoptic-edit');
 const statusEl = document.getElementById('synoptic-status');
-const nodes = new Map(); // tag -> { el, cfg, x, y }
+const queueEl = document.getElementById('synoptic-queue');
+const nodes = new Map(); // tag -> { el, cfg, x, y, value }
+/** Tags com alarme ativo (define o estado na fila de prioridade). */
+let alarmTags = new Set();
 
 let editing = false;
 /** Arraste em andamento: { node, pointerId, dx, dy, from }. */
@@ -24,29 +33,44 @@ let drag = null;
 /** Espera após a última seta antes de gravar (uma gravação por ajuste). */
 const KEY_SAVE_DELAY_MS = 500;
 
+/**
+ * Desenhos em traço único (cores e espessuras no CSS, classes syn-*): corpo,
+ * detalhe, preenchimento, valor, rótulo e o ponto de estado no canto.
+ */
 const SHAPES = {
   tank: `
-    <rect x="-8" y="-6" width="16" height="12" rx="2" fill="#eef1f4" stroke="#0969da" stroke-width="0.4"/>
-    <rect class="syn-fill" x="-7" y="5" width="14" height="0" fill="#0969da" opacity="0.5"/>
-    <text class="syn-val" y="1.5" text-anchor="middle" font-size="2.8" fill="#1f2328">—</text>
-    <text class="syn-label" y="-7.5" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
+    <rect class="syn-body" x="-8" y="-6" width="16" height="12" rx="1.2"/>
+    <rect class="syn-fill" x="-7" y="5" width="14" height="0"/>
+    <path class="syn-detail" d="M-6 6v1.6M6 6v1.6M-8 -3.6h16"/>
+    <circle class="syn-dot" cx="8" cy="-6" r="0.8"/>
+    <text class="syn-val" y="11.6" text-anchor="middle" font-size="2.6">—</text>
+    <text class="syn-label" y="-7.6" text-anchor="middle" font-size="2"></text>`,
   pressure: `
-    <circle r="5" fill="#eef1f4" stroke="#bc4c00" stroke-width="0.4"/>
-    <text class="syn-val" y="1.2" text-anchor="middle" font-size="2.5" fill="#1f2328">—</text>
-    <text class="syn-label" y="-6.5" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
+    <circle class="syn-body" r="5"/>
+    <path class="syn-detail" d="M-3 2.4A3.9 3.9 0 1 1 3 2.4M0 0L2 -2.4"/>
+    <circle class="syn-hub" r="0.55"/>
+    <circle class="syn-dot" cx="3.6" cy="-3.6" r="0.8"/>
+    <text class="syn-val" y="9" text-anchor="middle" font-size="2.6">—</text>
+    <text class="syn-label" y="-6.6" text-anchor="middle" font-size="2"></text>`,
   flow: `
-    <polygon points="-6,0 6,0 3,-4 -3,-4" fill="#eef1f4" stroke="#1a7f37" stroke-width="0.4"/>
-    <text class="syn-val" y="3" text-anchor="middle" font-size="2.5" fill="#1f2328">—</text>
-    <text class="syn-label" y="-6" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
+    <path class="syn-pipe" d="M-10 0H10"/>
+    <rect class="syn-body" x="-4" y="-2.8" width="8" height="5.6" rx="0.9"/>
+    <path class="syn-detail" d="M-1.1 -1.3L1.1 0L-1.1 1.3"/>
+    <circle class="syn-dot" cx="4" cy="-2.8" r="0.8"/>
+    <text class="syn-val" y="6.8" text-anchor="middle" font-size="2.6">—</text>
+    <text class="syn-label" y="-4.6" text-anchor="middle" font-size="2"></text>`,
   level: `
-    <rect x="-4" y="-8" width="8" height="16" rx="1" fill="#eef1f4" stroke="#8250df" stroke-width="0.4"/>
-    <rect class="syn-fill" x="-3" y="7" width="6" height="0" fill="#8250df" opacity="0.6"/>
-    <text class="syn-val" y="11" text-anchor="middle" font-size="2.2" fill="#1f2328">—</text>
-    <text class="syn-label" y="-10" text-anchor="middle" font-size="2" fill="#59636e"></text>`,
+    <rect class="syn-body" x="-4" y="-8" width="8" height="16" rx="1"/>
+    <rect class="syn-fill" x="-3" y="7" width="6" height="0"/>
+    <path class="syn-detail" d="M4 -4h1.3M4 0h1.3M4 4h1.3"/>
+    <circle class="syn-dot" cx="4" cy="-8" r="0.8"/>
+    <text class="syn-val" y="11.8" text-anchor="middle" font-size="2.6">—</text>
+    <text class="syn-label" y="-9.6" text-anchor="middle" font-size="2"></text>`,
   sensor: `
-    <rect x="-5" y="-3.5" width="10" height="7" rx="1" fill="#eef1f4" stroke="#59636e" stroke-width="0.35"/>
-    <text class="syn-val" y="1.2" text-anchor="middle" font-size="2.2" fill="#1f2328">—</text>
-    <text class="syn-label" y="-5.5" text-anchor="middle" font-size="1.8" fill="#59636e"></text>`,
+    <rect class="syn-body" x="-6" y="-3" width="12" height="6" rx="0.9"/>
+    <circle class="syn-dot" cx="6" cy="-3" r="0.8"/>
+    <text class="syn-val" y="0.9" text-anchor="middle" font-size="2.3">—</text>
+    <text class="syn-label" y="-4.6" text-anchor="middle" font-size="2"></text>`,
 };
 
 /** Altura útil do preenchimento de cada desenho (tanque e nível). */
@@ -71,9 +95,9 @@ export async function initSynoptic(inAlarm = new Set()) {
 
   drag = null;
   nodes.clear();
+  alarmTags = inAlarm;
   svg.innerHTML =
     GRID +
-    '<text x="50" y="6" text-anchor="middle" font-size="3" fill="#59636e">Processo</text>' +
     configs
       .map((c) => {
         const x = c.synopticX ?? 50;
@@ -98,13 +122,14 @@ export async function initSynoptic(inAlarm = new Set()) {
 
   const latest = await apiFetch('/api/dashboard/tags');
   if (latest.ok) for (const s of await latest.json()) updateSynoptic(s);
+  renderQueue();
 }
 
 export function updateSynoptic(s) {
   const node = nodes.get(s.tag);
   if (!node) return;
-  const unit = node.cfg.unit ? ` ${node.cfg.unit}` : '';
-  node.el.querySelector('.syn-val').textContent = `${fmtNum(s.value, 1)}${unit}`;
+  node.value = s.value;
+  node.el.querySelector('.syn-val').textContent = reading(node);
 
   const fill = node.el.querySelector('.syn-fill');
   const geo = FILL[node.cfg.synopticKind];
@@ -113,10 +138,60 @@ export function updateSynoptic(s) {
     fill.setAttribute('height', String(h));
     fill.setAttribute('y', String(geo.bottom - h));
   }
+  renderQueue();
 }
 
 export function setSynopticAlarms(inAlarm) {
+  alarmTags = inAlarm;
   for (const [tag, { el }] of nodes) el.classList.toggle('syn-node--alarm', inAlarm.has(tag));
+  renderQueue();
+}
+
+// ---------------------------------------------------------------- fila de prioridade
+
+const reading = (node) => `${fmtNum(node.value, 1)}${node.cfg.unit ? ` ${node.cfg.unit}` : ''}`;
+
+const STATE_ORDER = { alarm: 0, warn: 1, ok: 2, none: 3 };
+const STATE_TEXT = { alarm: 'Alarme', warn: 'Atenção', ok: 'Normal', none: 'Sem leitura' };
+const QUEUE_MAX = 8;
+
+/**
+ * Lista ao lado do desenho: primeiro o que está em alarme, depois o que está
+ * perto de um limite; dentro de cada grupo, a ordem do cadastro (a lista não
+ * fica trocando de lugar a cada amostra).
+ */
+function renderQueue() {
+  if (!queueEl) return;
+  const rows = [...nodes.values()]
+    .map((node, i) => ({
+      node,
+      i,
+      state: readingState(node.value, node.cfg, alarmTags.has(node.cfg.tag)),
+    }))
+    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.i - b.i)
+    .slice(0, QUEUE_MAX);
+  if (rows.length === 0) {
+    queueEl.innerHTML =
+      '<li class="queue__empty">Nenhuma tag no sinótico. Escolha o desenho em Configuração.</li>';
+    return;
+  }
+  queueEl.innerHTML = rows
+    .map(({ node, state }) => {
+      const { cfg } = node;
+      const value = state === 'none' ? '—' : esc(reading(node));
+      return `
+        <li class="queue__row queue__row--${state}">
+          <div class="queue__main">
+            <span class="queue__title">${esc(cfg.description || cfg.tag)}</span>
+            <span class="queue__sub">${esc(cfg.tag)}</span>
+          </div>
+          <div class="queue__reading">
+            <span class="queue__value">${value}</span>
+            <span class="queue__state">${STATE_TEXT[state]}</span>
+          </div>
+        </li>`;
+    })
+    .join('');
 }
 
 // ---------------------------------------------------------------- edição

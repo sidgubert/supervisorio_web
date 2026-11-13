@@ -58,6 +58,7 @@ function renderAlarms() {
   );
   const unacked = items.filter((a) => !a.ackedAt).length;
   alarmCount.textContent = `${items.length} aberto${items.length !== 1 ? 's' : ''}`;
+  alarmCount.classList.toggle('badge--alarm', items.length > 0);
   ackAllBtn.hidden = unacked === 0;
 
   if (items.length === 0) {
@@ -121,6 +122,8 @@ function createChartCard(tag, source) {
     </div>
     <div class="tag-card__value"><span class="val">—</span> <small class="unit"></small></div>
     <div class="chart-wrap"><canvas></canvas></div>`;
+  // O alarme pode ter chegado antes do primeiro ponto da tag.
+  card.classList.toggle('tag-card--alarm', tagsInAlarm().has(tag));
   grid.appendChild(card);
 
   const chart = new Chart(card.querySelector('canvas'), {
@@ -130,9 +133,9 @@ function createChartCard(tag, source) {
       datasets: [
         {
           data: [],
-          borderColor: '#0969da',
-          backgroundColor: 'rgba(9,105,218,0.08)',
-          borderWidth: 2,
+          borderColor: '#2b5fd9',
+          backgroundColor: 'rgba(43,95,217,0.06)',
+          borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
           fill: true,
@@ -146,12 +149,12 @@ function createChartCard(tag, source) {
       plugins: { legend: { display: false } },
       scales: {
         x: {
-          ticks: { color: '#59636e', maxTicksLimit: 5, font: { size: 10 } },
-          grid: { color: 'rgba(208,215,222,0.7)' },
+          ticks: { color: '#667085', maxTicksLimit: 5, font: { size: 10 } },
+          grid: { color: '#edf0f4' },
         },
         y: {
-          ticks: { color: '#59636e', font: { size: 10 } },
-          grid: { color: 'rgba(208,215,222,0.7)' },
+          ticks: { color: '#667085', font: { size: 10 } },
+          grid: { color: '#edf0f4' },
         },
       },
     },

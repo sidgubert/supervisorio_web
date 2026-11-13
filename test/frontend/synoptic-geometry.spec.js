@@ -2,6 +2,7 @@ import {
   arrowStep,
   clampPosition,
   fillFraction,
+  readingState,
   screenToDrawing,
 } from '../../public/js/synoptic-geometry.js';
 
@@ -80,5 +81,36 @@ describe('fillFraction', () => {
     expect(fillFraction(75, undefined, undefined)).toBe(0.5);
     expect(fillFraction(75, 100, 50)).toBe(0.5);
     expect(fillFraction(NaN, 0, 100)).toBe(0.5);
+  });
+});
+
+describe('readingState', () => {
+  const cfg = { engMin: 0, engMax: 100, alarmL: 20, alarmH: 80 };
+
+  it('alarme ativo vem antes de qualquer outra regra', () => {
+    expect(readingState(50, cfg, true)).toBe('alarm');
+    expect(readingState(undefined, cfg, true)).toBe('alarm');
+  });
+
+  it('sem leitura numérica não tem estado', () => {
+    expect(readingState(undefined, cfg, false)).toBe('none');
+    expect(readingState(NaN, cfg, false)).toBe('none');
+  });
+
+  it('atenção a menos de 5% da faixa de um limite alto ou baixo', () => {
+    expect(readingState(74.9, cfg, false)).toBe('ok');
+    expect(readingState(75, cfg, false)).toBe('warn');
+    expect(readingState(25, cfg, false)).toBe('warn');
+    expect(readingState(25.1, cfg, false)).toBe('ok');
+  });
+
+  it('sem faixa de engenharia, usa 5% do próprio limite', () => {
+    const semFaixa = { engMin: null, engMax: null, alarmH: 200 };
+    expect(readingState(189, semFaixa, false)).toBe('ok');
+    expect(readingState(190, semFaixa, false)).toBe('warn');
+  });
+
+  it('tag sem limites fica normal', () => {
+    expect(readingState(50, { engMin: 0, engMax: 100 }, false)).toBe('ok');
   });
 });
