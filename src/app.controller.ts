@@ -14,7 +14,8 @@ export class AppController {
       status: 'ok',
       endpoints: {
         health: 'GET /api/health',
-        auth: 'GET /api/auth/status, POST /api/auth/login, GET /api/auth/me',
+        auth: 'GET /api/auth/status, POST /api/auth/login, GET /api/auth/me, POST /api/auth/password',
+        users: 'GET|POST /api/users, PATCH|DELETE /api/users/:id (perfil admin)',
         dashboard: 'GET /api/dashboard/tags, GET /api/dashboard/alarms, SSE /api/dashboard/stream',
         tags: 'GET|POST /api/tags, GET|PATCH|DELETE /api/tags/:tag',
         latest: 'GET /api/measurements/:tag/latest?limit=100',

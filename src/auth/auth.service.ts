@@ -1,17 +1,20 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { Env } from '../config/env.validation';
+import { Role } from '../users/role';
+import { UsersService } from '../users/users.service';
 
 export interface AuthUser {
   username: string;
+  role: Role;
 }
 
 /** Validade do token. */
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** Usuário atribuído às requisições quando a autenticação está desligada. */
-export const ANONYMOUS: AuthUser = { username: 'anônimo' };
+/** Usuário atribuído às requisições quando a autenticação está desligada (sem restrição de perfil). */
+export const ANONYMOUS: AuthUser = { username: 'anônimo', role: 'admin' };
 
 /**
  * Autenticação por token HMAC, didaticamente simples:
@@ -22,23 +25,28 @@ export const ANONYMOUS: AuthUser = { username: 'anônimo' };
  * expiração (24 h) faz parte do conteúdo assinado. Não há sessão no servidor:
  * validar é recalcular a assinatura.
  *
- * Usuário e senha vêm de AUTH_USER/AUTH_PASSWORD (um operador), adequado ao
- * laboratório; em produção, use um cadastro de usuários com senhas em hash
- * (bcrypt/argon2) e um padrão como JWT/OIDC.
+ * Usuários e perfis ficam no banco (senha com hash argon2, ver UsersService).
+ * O token só identifica o usuário; o perfil é lido de UsersService a cada
+ * validação, então desativar um usuário ou trocar seu perfil vale na hora,
+ * sem esperar o token expirar.
  */
 @Injectable()
 export class AuthService {
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly users: UsersService,
+  ) {}
 
   isEnabled(): boolean {
     return this.config.get('AUTH_ENABLED', { infer: true });
   }
 
-  login(username: string, password: string): { token: string; user: AuthUser } {
-    const okUser = safeEqual(username, this.config.get('AUTH_USER', { infer: true }));
-    const okPass = safeEqual(password, this.config.get('AUTH_PASSWORD', { infer: true }));
-    if (!okUser || !okPass) throw new UnauthorizedException('Usuário ou senha inválidos.');
-    return { token: this.sign(username, Date.now() + TOKEN_TTL_MS), user: { username } };
+  async login(username: string, password: string): Promise<{ token: string; user: AuthUser }> {
+    const found = await this.users.verify(username, password);
+    return {
+      token: this.sign(found.username, Date.now() + TOKEN_TTL_MS),
+      user: { username: found.username, role: found.role },
+    };
   }
 
   /** Usuário do token, ou null se inválido/expirado. Com auth desligada, anônimo. */
@@ -56,7 +64,8 @@ export class AuthService {
       };
       if (typeof data.user !== 'string' || typeof data.exp !== 'number') return null;
       if (data.exp < Date.now()) return null;
-      return { username: data.user };
+      const role = this.users.activeRole(data.user);
+      return role ? { username: data.user, role } : null;
     } catch {
       return null;
     }

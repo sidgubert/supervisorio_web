@@ -41,6 +41,13 @@ export const STATE_LABEL = {
   CLOSED: 'Encerrado',
 };
 
+export const ROLE_LABEL = {
+  viewer: 'Visualizador',
+  operator: 'Operador',
+  engineer: 'Engenheiro',
+  admin: 'Administrador',
+};
+
 /** Mensagem de erro de uma resposta da API (a validação devolve uma lista). */
 export async function apiError(res) {
   try {

@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { ANONYMOUS } from '../auth/auth.service';
 import { AlarmsController } from './alarms.controller';
 import { AlarmsService } from './alarms.service';
 
@@ -48,18 +49,20 @@ describe('AlarmsController', () => {
   const id = '11111111-1111-4111-8111-111111111111';
 
   it('ack e ack-all registram o usuário autenticado (ignorando o "by" do corpo)', () => {
-    expect(controller.ack(id, { by: 'outro' }, { username: 'maria' })).toEqual({
+    expect(controller.ack(id, { by: 'outro' }, { username: 'maria', role: 'operator' })).toEqual({
       state: 'ACTIVE_ACKED',
     });
     expect(service.ack).toHaveBeenCalledWith(id, 'maria');
-    expect(controller.ackAll({}, { username: 'maria' })).toEqual({ acknowledged: 3 });
+    expect(controller.ackAll({}, { username: 'maria', role: 'operator' })).toEqual({
+      acknowledged: 3,
+    });
     expect(service.ackAll).toHaveBeenCalledWith('maria');
   });
 
   it('sem autenticação, usa o "by" do corpo, ou "anônimo"', () => {
-    controller.ack(id, { by: '  João  ' }, { username: 'anônimo' });
+    controller.ack(id, { by: '  João  ' }, ANONYMOUS);
     expect(service.ack).toHaveBeenLastCalledWith(id, 'João');
-    controller.ack(id, {}, { username: 'anônimo' });
+    controller.ack(id, {}, ANONYMOUS);
     expect(service.ack).toHaveBeenLastCalledWith(id, 'anônimo');
     controller.ackAll({ by: '' }, undefined);
     expect(service.ackAll).toHaveBeenLastCalledWith('anônimo');

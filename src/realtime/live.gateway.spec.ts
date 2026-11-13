@@ -8,6 +8,7 @@ import { AuthService } from '../auth/auth.service';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { Sample } from '../ingestion/sample';
 import { MetricsCollectorService } from '../metrics/metrics-collector.service';
+import { UsersService } from '../users/users.service';
 import { LiveFeedService } from './live-feed.service';
 import { LiveGateway, SubscribeAck } from './live.gateway';
 
@@ -49,6 +50,13 @@ async function startApp(env: { flushMs: number; maxPerTag?: number; auth?: boole
       LiveGateway,
       LiveFeedService,
       AuthService,
+      {
+        provide: UsersService,
+        useValue: {
+          activeRole: (u: string) => (u === 'op' ? 'operator' : null),
+          verify: (u: string) => Promise.resolve({ username: u, role: 'operator' }),
+        },
+      },
       { provide: ConfigService, useValue: { get: (k: string) => values[k] } },
       { provide: IngestionService, useValue: { samples$: feed } },
       { provide: AlarmsService, useValue: { events$: alarmFeed } },
@@ -272,7 +280,7 @@ describe('LiveGateway com autenticação', () => {
   });
 
   it('aceita conexão com token válido', async () => {
-    const { token } = ctx.auth.login('op', 'senha');
+    const { token } = await ctx.auth.login('op', 'senha');
     expect(await connects({ token })).toBe(true);
   });
 });

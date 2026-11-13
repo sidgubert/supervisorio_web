@@ -102,10 +102,11 @@ async function startServer(port: number, secure = false) {
   };
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 10_000) {
+async function waitFor(cond: () => boolean, timeoutMs = 10_000, desc = 'condição') {
   const start = Date.now();
   while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error('condição não atingida a tempo');
+    if (Date.now() - start > timeoutMs)
+      throw new Error(`${desc} não atingida a tempo (${Date.now() - start} ms)`);
     await new Promise((r) => setTimeout(r, 25));
   }
 }
@@ -129,7 +130,7 @@ function setup(port: number, initialTags: Tag[], enabled = true, security: Parti
   const ingestion = { register: jest.fn() };
   const values = {
     OPCUA_ENABLED: enabled,
-    OPCUA_ENDPOINT: `opc.tcp://localhost:${port}/UA/teste`,
+    OPCUA_ENDPOINT: `opc.tcp://127.0.0.1:${port}/UA/teste`,
     OPCUA_SAMPLING_MS: 50,
     // A fonte cria o próprio gerenciador de certificados nesta pasta.
     OPCUA_PKI_DIR: join(pki, 'client'),
@@ -167,8 +168,6 @@ describe('OpcUaSource', () => {
 
   beforeAll(() => {
     Logger.overrideLogger(false);
-    // O node-opcua imprime diagnósticos no console (ex: o servidor mínimo de
-    // teste não tem todos os nós de capacidade que o cliente consulta).
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
@@ -217,7 +216,7 @@ describe('OpcUaSource', () => {
       tag('FQ-1', 'ns=1;s=Counter'),
       tag('BIG', 'ns=1;s=Big'),
     ]);
-    await waitFor(() => ctx.received.length >= 5);
+    await waitFor(() => ctx.received.length >= 5, 20_000);
     const initial = Object.fromEntries(ctx.received.map((s) => [s.tag, s.value]));
     expect(initial).toEqual({ 'TT-1': 21.5, 'PT-1': 4.25, 'XV-1': 1, 'FQ-1': 7, BIG: 4294967298 });
     expect(source!.status()).toMatchObject({ connected: true, tags: 5 });

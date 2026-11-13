@@ -18,6 +18,7 @@ import { MqttModule } from './sources/mqtt/mqtt.module';
 import { OpcUaModule } from './sources/opcua/opcua.module';
 import { SimulatorModule } from './sources/simulator/simulator.module';
 import { TagsModule } from './tags/tags.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   controllers: [AppController],
@@ -46,6 +47,7 @@ import { TagsModule } from './tags/tags.module';
         migrationsRun: config.get('DB_MIGRATIONS_RUN', { infer: true }),
       }),
     }),
+    UsersModule,
     AuthModule,
     MeasurementsModule,
     TagsModule,

@@ -147,6 +147,7 @@ internet.
 | **Histórico de alarmes** | Últimas 24 h: quando cada alarme ativou, normalizou e quem reconheceu                                                                                                     |
 | **Métricas**             | Ingestão por fonte, armazenamento e compressão, comparação dos protocolos e exportação CSV                                                                                |
 | **Configuração**         | Faixa, limites de alarme, banda morta e posição no sinótico de cada tag                                                                                                   |
+| **Conta**                | Com o login ligado: troca da própria senha e, para o administrador, o cadastro de usuários e perfis                                                                       |
 
 O tempo real chega por SSE (`/api/dashboard/stream`); se a conexão cair, o
 navegador reconecta sozinho. Com o login ligado
@@ -441,7 +442,7 @@ API e dashboard ficam abertos. Para ligar, no `.env`:
 
 ```env
 AUTH_ENABLED=true
-AUTH_USER=operador
+AUTH_USER=admin
 AUTH_PASSWORD=uma-senha-forte
 AUTH_SECRET=32-ou-mais-caracteres-aleatorios
 ```
@@ -459,11 +460,39 @@ Sem senha, ou com segredo curto ou igual ao do exemplo, a API não sobe.
   dashboard carregam sem token, mas a tela leva ao login antes de chamar a
   API.
 - No máximo 5 tentativas de login por minuto por IP (`429` acima disso), o
-  que inviabiliza adivinhar a senha por tentativa e erro. Senha e assinatura
-  são comparadas em tempo constante.
+  que inviabiliza adivinhar a senha por tentativa e erro. A troca de senha
+  entra na mesma conta.
 - O token é `payload.assinatura` (HMAC-SHA256), escrito à mão para ser fácil
-  de estudar em `src/auth/auth.service.ts`. Há um único usuário; ver
-  [Próximos passos](#próximos-passos).
+  de estudar em `src/auth/auth.service.ts`. Ele só identifica o usuário; o
+  perfil é consultado a cada requisição.
+
+### Usuários e perfis
+
+Os usuários ficam na tabela `users`, com a senha guardada só como hash
+argon2id. Na primeira subida com o login ligado e a tabela vazia, a API cria
+um administrador com `AUTH_USER`/`AUTH_PASSWORD`. Depois disso essas duas
+variáveis não são mais consultadas: mudar a senha no `.env` não muda a do
+usuário já criado.
+
+Cada usuário tem um perfil, e o maior herda o que o menor pode:
+
+| Perfil     | Na tela       | Pode                                                  |
+| ---------- | ------------- | ----------------------------------------------------- |
+| `viewer`   | Visualizador  | Acompanhar: gráficos, sinótico, históricos e métricas |
+| `operator` | Operador      | O anterior, mais reconhecer alarmes                   |
+| `engineer` | Engenheiro    | O anterior, mais cadastrar, alterar e remover tags    |
+| `admin`    | Administrador | O anterior, mais gerenciar usuários                   |
+
+- Rota com perfil insuficiente responde `403`. O dashboard esconde o que o
+  perfil não pode usar (botões de reconhecer, tela Configuração, edição do
+  sinótico), mas quem decide é a API (`src/auth/roles.guard.ts`).
+- Trocar o perfil de um usuário ou desativá-lo vale na hora, sem esperar o
+  token expirar. Trocar a senha não invalida os tokens já emitidos.
+- A tela **Conta** troca a própria senha (exige a atual) e, para o
+  administrador, cria usuários, muda perfis, desativa, redefine senhas e
+  remove. A API não deixa o sistema ficar sem um administrador ativo.
+- Com o login desligado não há perfis: todas as requisições têm acesso
+  total, e a tela Conta não aparece.
 
 ## Métricas, retenção e exportação
 
@@ -495,7 +524,9 @@ recalculado a partir de dados já apagados. Os agregados `measurements_1m` e
 ## API HTTP
 
 Todas as rotas ficam sob `/api`. Com o login ligado, exigem
-`Authorization: Bearer <token>`, exceto as marcadas com \*.
+`Authorization: Bearer <token>`, exceto as marcadas com \*, e algumas
+exigem um perfil mínimo, indicado na descrição (ver
+[Usuários e perfis](#usuários-e-perfis)).
 
 | Método | Rota                                               | Descrição                                            |
 | ------ | -------------------------------------------------- | ---------------------------------------------------- |
@@ -503,19 +534,24 @@ Todas as rotas ficam sob `/api`. Com o login ligado, exigem
 | GET    | `/api/health` \*                                   | `200` se o banco responde; `503` se não              |
 | GET    | `/api/auth/status` \*                              | Se o login está ligado                               |
 | POST   | `/api/auth/login` \*                               | Login (ver [Autenticação](#autenticação))            |
-| GET    | `/api/auth/me`                                     | Usuário do token                                     |
+| GET    | `/api/auth/me`                                     | Usuário do token, com o perfil                       |
+| POST   | `/api/auth/password`                               | Troca a própria senha (`{ current, password }`)      |
+| GET    | `/api/users`                                       | Usuários (perfil `admin`, como as três abaixo)       |
+| POST   | `/api/users`                                       | Cria um usuário (`409` se o nome já existir)         |
+| PATCH  | `/api/users/:id`                                   | Altera perfil, situação (`active`) ou senha          |
+| DELETE | `/api/users/:id`                                   | Remove um usuário (`204`)                            |
 | GET    | `/api/sources`                                     | Estado das fontes de aquisição                       |
 | GET    | `/api/tags`                                        | Tags cadastradas                                     |
 | GET    | `/api/tags/:tag`                                   | Uma tag (`404` se não existir)                       |
-| POST   | `/api/tags`                                        | Cadastra uma tag (`409` se já existir)               |
-| PATCH  | `/api/tags/:tag`                                   | Altera campos de uma tag                             |
-| DELETE | `/api/tags/:tag`                                   | Remove uma tag do cadastro (`204`)                   |
+| POST   | `/api/tags`                                        | Cadastra uma tag (`409` se já existir; `engineer`)   |
+| PATCH  | `/api/tags/:tag`                                   | Altera campos de uma tag (`engineer`)                |
+| DELETE | `/api/tags/:tag`                                   | Remove uma tag do cadastro (`204`; `engineer`)       |
 | GET    | `/api/measurements/:tag/latest?limit=100`          | Últimas amostras (`limit` de 1 a 5000)               |
 | GET    | `/api/measurements/:tag/history?from=&to=&bucket=` | Série para gráficos (ver abaixo)                     |
 | GET    | `/api/alarms`                                      | Alarmes abertos, mais graves primeiro                |
 | GET    | `/api/alarms/history?from=&to=&tag=&limit=`        | Histórico de alarmes (padrão: últimas 24 h, até 200) |
-| POST   | `/api/alarms/:id/ack`                              | Reconhece um alarme (`404` se não estiver aberto)    |
-| POST   | `/api/alarms/ack-all`                              | Reconhece todos os alarmes abertos                   |
+| POST   | `/api/alarms/:id/ack`                              | Reconhece um alarme (`404` se fechado; `operator`)   |
+| POST   | `/api/alarms/ack-all`                              | Reconhece todos os alarmes abertos (`operator`)      |
 | GET    | `/api/dashboard/tags`                              | Último valor de cada tag                             |
 | GET    | `/api/dashboard/alarms`                            | Alarmes abertos e o cadastro de tags                 |
 | GET    | `/api/dashboard/stream`                            | SSE: amostras e alarmes em tempo real                |
@@ -592,8 +628,8 @@ problemas.
 | `RETENTION_ENABLED`         | `false`                    | Apaga medições antigas (política de retenção do TimescaleDB)      |
 | `RETENTION_DAYS`            | `90`                       | Prazo da retenção, em dias (mínimo 8)                             |
 | `AUTH_ENABLED`              | `false`                    | Liga o login                                                      |
-| `AUTH_USER`                 | `operador`                 | Usuário                                                           |
-| `AUTH_PASSWORD`             | vazio                      | Senha (obrigatória com o login ligado)                            |
+| `AUTH_USER`                 | `operador`                 | Nome do primeiro administrador (criado com a tabela vazia)        |
+| `AUTH_PASSWORD`             | vazio                      | Senha inicial dele (obrigatória com o login ligado)               |
 | `AUTH_SECRET`               | vazio                      | Segredo que assina os tokens (32+ caracteres aleatórios)          |
 | `SIM_ENABLED`               | `true`                     | Liga o simulador de senoides                                      |
 | `SIM_INTERVAL_MS`           | `1000`                     | Intervalo do simulador                                            |
@@ -777,41 +813,37 @@ O Node.js tem dois sistemas de módulos: o **CommonJS** (`require` e
 padrão da linguagem. Este projeto compila para CommonJS (`"module":
 "commonjs"` no `tsconfig.json`), que é o padrão do NestJS.
 
-A partir da versão 2.184, o node-opcua passou a ser publicado só em ESM. Por
-isso:
+A partir da versão 2.184, o node-opcua passou a ser publicado só em ESM. O
+projeto usa a 2.187 sem ter migrado para ESM:
 
-- O node-opcua está **fixado na 2.183.x** (em `package.json`, sem `^`), a
-  última linha com o pacote principal em CommonJS. Dois subpacotes dela
-  (`node-opcua-transport` e `node-opcua-crypto`) já são ESM.
 - Na execução, isso não é problema: desde o Node 22.12, um `require` comum
   consegue carregar um módulo ESM. É um dos motivos do requisito de Node
   22.13+.
 - O **Jest** roda em CommonJS com o seu próprio carregador de módulos, que não
   faz essa ponte. O `jest.esm-transformer.cjs` converte para CommonJS, só nos
   testes, os pacotes listados em `transformIgnorePatterns` (no
-  `package.json`).
+  `package.json`): todos os `node-opcua-*` e as dependências ESM deles. Como
+  `import.meta` não existe em CommonJS, o transformador o troca por
+  `__filename`/`__dirname`.
+- As versões seguem fixadas (sem `^`) em `package.json`: uma versão nova pode
+  trazer outra dependência ESM, que precisa entrar nessa lista.
 
-Para atualizar o node-opcua para a 2.184 ou mais nova, **não é preciso migrar
-o projeto inteiro para ESM**: num teste isolado, o `require` do Node 24
-carregou a 2.186 (com os 51 subpacotes em ESM) sem problemas. O trabalho fica
-nos testes: ampliar a lista do transformador para todos os pacotes
-`node-opcua-*` (e as dependências ESM deles), ou trocar o Jest por um
-executor de testes com suporte nativo a ESM, como o Vitest. Migrar o projeto
-todo para ESM (`"type": "module"` no `package.json`, `"module": "nodenext"`
-no `tsconfig.json`, extensão `.js` nos imports relativos) é uma mudança maior,
+A alternativa ao transformador é trocar o Jest por um executor de testes com
+suporte nativo a ESM, como o Vitest. Migrar o projeto todo para ESM
+(`"type": "module"` no `package.json`, `"module": "nodenext"` no
+`tsconfig.json`, extensão `.js` nos imports relativos) é uma mudança maior,
 que só se justifica se outras dependências passarem a exigir.
 
 ## Próximos passos
 
-- **Usuários e perfis.** Hoje há um único usuário (`AUTH_USER`), sem
-  distinção entre quem só acompanha e quem reconhece alarmes ou altera tags.
-  O passo seguinte é guardar usuários no banco (senha com hash, ex: argon2) e
-  criar perfis.
+- **Sessões.** O token não pode ser revogado antes das 24 h, a não ser
+  desativando o usuário, e trocar a senha não encerra as sessões abertas. O
+  perfil dos usuários ativos fica em memória, o que supõe uma única instância
+  da API. Um padrão como JWT/OIDC com renovação resolveria os dois pontos.
 - **CORS e HTTPS.** O CORS está liberado para qualquer origem (o token vai no
   cabeçalho, não em cookie, então outro site não consegue usá-lo sozinho), e
   a API fala HTTP puro. Fora do laboratório: restringir as origens e pôr um
   proxy com HTTPS na frente.
-- **Atualizar o node-opcua** para a linha 2.184+, conforme a seção anterior.
 
 ## Licença
 

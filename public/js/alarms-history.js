@@ -1,4 +1,4 @@
-import { apiFetch } from './auth.js';
+import { apiFetch, can } from './auth.js';
 import { apiError, esc, fmtDateTime, fmtNum, STATE_LABEL } from './util.js';
 
 const tbody = document.getElementById('alarm-history-body');
@@ -41,7 +41,7 @@ export async function refreshAlarmHistory() {
         }</td>
         <td>${r.ackedAt ? `${fmtDateTime(r.ackedAt)}<br><span class="muted">por ${esc(r.ackedBy ?? '—')}</span>` : '—'}</td>
         <td><span class="state state--${r.state.toLowerCase()}">${esc(STATE_LABEL[r.state] ?? r.state)}</span></td>
-        <td>${r.ackedAt ? '' : `<button class="btn btn--sm" data-id="${esc(r.id)}">Reconhecer</button>`}</td>
+        <td>${r.ackedAt || !can('operator') ? '' : `<button class="btn btn--sm" data-id="${esc(r.id)}">Reconhecer</button>`}</td>
       </tr>`,
     )
     .join('');
