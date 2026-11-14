@@ -103,7 +103,8 @@ export function generatedSignal(n: number): SignalSpec {
 /**
  * Tags do simulador (SIM_TAGS): as de DEFAULT_SIGNALS e, acima disso, tags
  * geradas para teste de carga. As geradas não estão no cadastro: são
- * gravadas no banco, mas não aparecem no dashboard nem geram alarmes.
+ * gravadas no banco, mas não aparecem no dashboard (LiveFeedService só
+ * repassa tags do cadastro) nem geram alarmes.
  */
 export function simulatorSignals(count: number): SignalSpec[] {
   const signals = DEFAULT_SIGNALS.slice(0, count);

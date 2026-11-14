@@ -93,6 +93,11 @@ function setup(tags: Partial<Tag>[], initialAlarms: Alarm[] = [], hysteresisPct 
       { tag, value, quality, time: new Date(t), source: 'sim', receivedAt: new Date(t) },
     ]);
   };
+  /** Emite uma amostra com horário deslocado, sem avançar o relógio. */
+  const pushAt = (tag: string, value: number, offsetMs: number) => {
+    const time = new Date(t + offsetMs);
+    samples.next([{ tag, value, quality: 192, time, source: 'mqtt', receivedAt: new Date(t) }]);
+  };
   const setTags = async (next: Partial<Tag>[]) => {
     registry = next.map((x) => ({ enabled: true, ...x }) as Tag);
     changes.next({ type: 'updated', tag: registry[0] });
@@ -105,7 +110,7 @@ function setup(tags: Partial<Tag>[], initialAlarms: Alarm[] = [], hysteresisPct 
       await new Promise((r) => setImmediate(r));
     }
   };
-  return { service, db, events, push, setTags, flushed };
+  return { service, db, events, push, pushAt, setTags, flushed };
 }
 
 const tic = { tag: 'TIC-101.PV', alarmL: 60, alarmH: 90, alarmHH: 100 };
@@ -114,6 +119,19 @@ beforeAll(() => Logger.overrideLogger(false));
 
 describe('AlarmsService', () => {
   afterEach(() => jest.useRealTimers());
+
+  it('amostra mais antiga que a última avaliada não mexe nos alarmes', async () => {
+    const { service, push, pushAt } = setup([tic]);
+    await service.onModuleInit();
+
+    push('TIC-101.PV', 75);
+    pushAt('TIC-101.PV', 95, -60_000); // reenvio de um valor alto de 1 min atrás
+    expect(service.list()).toEqual([]);
+
+    push('TIC-101.PV', 95);
+    pushAt('TIC-101.PV', 70, -60_000); // um valor normal antigo não normaliza
+    expect(service.list()).toEqual([expect.objectContaining({ state: 'ACTIVE_UNACKED' })]);
+  });
 
   it('ativa ao violar o limite e normaliza ao voltar, gravando e publicando', async () => {
     const { service, db, events, push, flushed } = setup([tic]);

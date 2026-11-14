@@ -3,6 +3,7 @@ import {
   createParamDecorator,
   ExecutionContext,
   Injectable,
+  SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -15,11 +16,20 @@ interface AuthRequest {
   user?: AuthUser;
 }
 
+export const QUERY_TOKEN = 'queryToken';
+
+/**
+ * Rota que também aceita o token em ?token= (o EventSource do SSE não envia
+ * cabeçalhos). Só onde for preciso: um token na URL acaba em históricos e
+ * logs de proxy.
+ */
+export const AllowQueryToken = () => SetMetadata(QUERY_TOKEN, true);
+
 /**
  * Guard global (APP_GUARD): com AUTH_ENABLED=true, toda rota da API exige um
  * token válido, exceto as marcadas com @Public(). O token vem no cabeçalho
- * Authorization: Bearer ou em ?token= (o EventSource do SSE não envia
- * cabeçalhos). Com a autenticação desligada, a requisição segue como anônima.
+ * Authorization: Bearer ou, nas rotas com @AllowQueryToken(), em ?token=.
+ * Com a autenticação desligada, a requisição segue como anônima.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -35,7 +45,12 @@ export class AuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    const token = AuthService.extractToken(req.headers.authorization, req.query?.token);
+    const targets = [context.getHandler(), context.getClass()];
+    const viaQuery = this.reflector.getAllAndOverride<boolean>(QUERY_TOKEN, targets);
+    const token = AuthService.extractToken(
+      req.headers.authorization,
+      viaQuery ? req.query?.token : undefined,
+    );
     const user = this.auth.validateToken(token);
     if (user) {
       req.user = user;

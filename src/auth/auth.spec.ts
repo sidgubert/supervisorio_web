@@ -10,16 +10,20 @@ import { Env } from '../config/env.validation';
 import { Role } from '../users/role';
 import { UsersService } from '../users/users.service';
 import { AuthController, MAX_LOGIN_ATTEMPTS } from './auth.controller';
-import { AuthGuard } from './auth.guard';
+import { AuthGuard, QUERY_TOKEN } from './auth.guard';
 import { ANONYMOUS, AuthService } from './auth.service';
 import { RolesGuard } from './roles.guard';
 
 const SECRET = 's'.repeat(40);
 
 /** Usuários em memória no lugar do banco (senha em texto, só no teste). */
-function fakeUsers(roles: Record<string, Role> = { operador: 'operator' }) {
+function fakeUsers(
+  roles: Record<string, Role> = { operador: 'operator' },
+  stamps: Record<string, string> = {},
+) {
   return {
     activeRole: (u: string) => roles[u] ?? null,
+    tokenStamp: (u: string) => (u in roles ? (stamps[u] ?? 'v1') : null),
     verify: (u: string, p: string) => {
       if (!(u in roles) || p !== 'senha-forte') {
         return Promise.reject(new UnauthorizedException('Usuário ou senha inválidos.'));
@@ -80,6 +84,16 @@ describe('AuthService', () => {
     expect(auth.validateToken(token)).toBeNull();
   });
 
+  it('trocar a senha invalida os tokens anteriores', async () => {
+    const stamps: Record<string, string> = {};
+    const auth = service(true, SECRET, fakeUsers({ operador: 'operator' }, stamps));
+    const { token } = await auth.login('operador', 'senha-forte');
+    stamps.operador = 'v2'; // a senha mudou
+    expect(auth.validateToken(token)).toBeNull();
+    const fresh = auth.sign('operador', Date.now() + 60_000);
+    expect(auth.validateToken(fresh)?.username).toBe('operador');
+  });
+
   it('recusa token adulterado, assinado com outro segredo ou malformado', async () => {
     const auth = service();
     const { token } = await auth.login('operador', 'senha-forte');
@@ -108,8 +122,10 @@ describe('AuthService', () => {
 });
 
 describe('AuthGuard', () => {
-  function context(req: object, isPublic = false) {
-    const reflector = { getAllAndOverride: () => isPublic } as unknown as Reflector;
+  function context(req: object, isPublic = false, queryToken = false) {
+    const reflector = {
+      getAllAndOverride: (key: string) => (key === QUERY_TOKEN ? queryToken : isPublic),
+    } as unknown as Reflector;
     const ctx = {
       getType: () => 'http',
       getHandler: () => undefined,
@@ -128,8 +144,13 @@ describe('AuthGuard', () => {
     expect(new AuthGuard(auth, a.reflector).canActivate(a.ctx)).toBe(true);
     expect(ok.user).toEqual({ username: 'operador', role: 'operator' });
 
-    const viaQuery = context({ headers: {}, query: { token } });
+    // ?token= só vale nas rotas marcadas com @AllowQueryToken() (o stream SSE).
+    const viaQuery = context({ headers: {}, query: { token } }, false, true);
     expect(new AuthGuard(auth, viaQuery.reflector).canActivate(viaQuery.ctx)).toBe(true);
+    const other = context({ headers: {}, query: { token } });
+    expect(() => new AuthGuard(auth, other.reflector).canActivate(other.ctx)).toThrow(
+      UnauthorizedException,
+    );
 
     const none = context({ headers: {} });
     expect(() => new AuthGuard(auth, none.reflector).canActivate(none.ctx)).toThrow(
@@ -191,20 +212,35 @@ describe('AuthController', () => {
     return new AuthController(service(enabled, SECRET, users), users);
   };
 
-  it('limita as tentativas de login por IP (429)', async () => {
+  it('depois de 5 senhas erradas, bloqueia aquele usuário naquele IP (429)', async () => {
     const c = controller();
+    const wrong = { username: 'operador', password: 'errada' };
+    const right = { username: 'operador', password: 'senha-forte' };
     for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
-      await expect(c.login({ username: 'x', password: 'y' }, '10.0.0.1')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(c.login(wrong, '10.0.0.1')).rejects.toThrow(UnauthorizedException);
     }
-    await expect(
-      c.login({ username: 'operador', password: 'senha-forte' }, '10.0.0.1'),
-    ).rejects.toThrow(HttpException);
+    const blocked = await c.login(right, '10.0.0.1').catch((e: HttpException) => e);
+    expect((blocked as HttpException).getStatus()).toBe(429);
     // Outro IP não é afetado.
-    expect(
-      (await c.login({ username: 'operador', password: 'senha-forte' }, '10.0.0.2')).token,
-    ).toBeTruthy();
+    expect((await c.login(right, '10.0.0.2')).token).toBeTruthy();
+  });
+
+  it('os erros de um usuário não bloqueiam outro no mesmo IP (proxy, Docker)', async () => {
+    const users = fakeUsers({ operador: 'operator', ana: 'viewer' });
+    const c = new AuthController(service(true, SECRET, users), users);
+    for (let i = 0; i < MAX_LOGIN_ATTEMPTS + 2; i++) {
+      await c.login({ username: 'operador', password: 'errada' }, 'ip').catch(() => undefined);
+    }
+    expect((await c.login({ username: 'ana', password: 'senha-forte' }, 'ip')).token).toBeTruthy();
+  });
+
+  it('logins certos não contam como tentativa', async () => {
+    const c = controller();
+    for (let i = 0; i < MAX_LOGIN_ATTEMPTS * 2; i++) {
+      expect(
+        (await c.login({ username: 'operador', password: 'senha-forte' }, 'ip')).token,
+      ).toBeTruthy();
+    }
   });
 
   it('libera de novo depois da janela de 1 minuto', async () => {

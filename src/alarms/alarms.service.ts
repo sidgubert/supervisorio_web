@@ -17,7 +17,14 @@ import { IngestionService } from '../ingestion/ingestion.service';
 import { QUALITY_BAD, Sample } from '../ingestion/sample';
 import { TagsService } from '../tags/tags.service';
 import { Alarm } from './alarm.entity';
-import { AlarmLevel, AlarmLimits, configuredLevels, evaluate, LEVEL_PRIORITY } from './alarm-rules';
+import {
+  ALARM_LEVELS,
+  AlarmLevel,
+  AlarmLimits,
+  configuredLevels,
+  evaluate,
+  LEVEL_PRIORITY,
+} from './alarm-rules';
 
 export type AlarmState = 'ACTIVE_UNACKED' | 'ACTIVE_ACKED' | 'CLEARED_UNACKED' | 'CLOSED';
 
@@ -42,8 +49,9 @@ const MAX_RETRY_MS = 30_000;
 /**
  * Motor de alarmes.
  *
- * - Avalia cada amostra (exceto as de qualidade Bad, cujo valor é velho)
- *   contra os limites da tag no cadastro (alarm-rules.ts).
+ * - Avalia cada amostra (exceto as de qualidade Bad, cujo valor é velho, e
+ *   as mais antigas que a última já avaliada da tag) contra os limites da
+ *   tag no cadastro (alarm-rules.ts).
  * - O estado vive em memória: a lista de alarmes abertos e as transições
  *   funcionam mesmo com o banco fora, como o tempo real.
  * - As transições (ativou, normalizou, reconhecido) vão para uma fila de
@@ -62,6 +70,8 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
   private readonly active = new Map<string, Alarm>();
   /** Limites por tag (só tags habilitadas com algum limite). */
   private limits = new Map<string, AlarmLimits>();
+  /** Horário da última amostra avaliada de cada tag (ver onSamples). */
+  private readonly lastTime = new Map<string, number>();
   private readonly outbox: Op[] = [];
   private writing?: Promise<void>;
   private retryTimer?: NodeJS.Timeout;
@@ -153,6 +163,11 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
       const limits = this.limits.get(s.tag);
       const activeLevels = this.activeLevels(s.tag);
       if (!limits && activeLevels.size === 0) continue;
+      // Dado atrasado (ex: dispositivo reenviando o que guardou): vai para o
+      // histórico, mas não diz nada sobre o estado atual do processo.
+      const t = s.time.getTime();
+      if (t < (this.lastTime.get(s.tag) ?? -Infinity)) continue;
+      this.lastTime.set(s.tag, t);
       const { raise, clear } = evaluate(
         limits ?? {},
         activeLevels,
@@ -212,7 +227,7 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
 
   private activeLevels(tag: string): Set<AlarmLevel> {
     const levels = new Set<AlarmLevel>();
-    for (const alarm of this.active.values()) if (alarm.tag === tag) levels.add(alarm.level);
+    for (const level of ALARM_LEVELS) if (this.active.has(key(tag, level))) levels.add(level);
     return levels;
   }
 
@@ -232,6 +247,7 @@ export class AlarmsService implements OnModuleInit, OnModuleDestroy {
       if (t.enabled && configuredLevels(t).size > 0) next.set(t.tag, t);
     }
     this.limits = next;
+    for (const tag of [...this.lastTime.keys()]) if (!next.has(tag)) this.lastTime.delete(tag);
     const now = new Date();
     for (const alarm of [...this.active.values()]) {
       const limits = next.get(alarm.tag);

@@ -7,7 +7,6 @@ import { Env } from './config/env.validation';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.enableCors();
   // Faz o Nest chamar onModuleDestroy no SIGTERM/SIGINT, para as fontes
   // pararem e o buffer pendente ser gravado antes de o processo encerrar.
   app.enableShutdownHooks();

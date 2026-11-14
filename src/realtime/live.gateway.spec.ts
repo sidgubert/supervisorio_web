@@ -8,6 +8,7 @@ import { AuthService } from '../auth/auth.service';
 import { IngestionService } from '../ingestion/ingestion.service';
 import { Sample } from '../ingestion/sample';
 import { MetricsCollectorService } from '../metrics/metrics-collector.service';
+import { TagsService } from '../tags/tags.service';
 import { UsersService } from '../users/users.service';
 import { LiveFeedService } from './live-feed.service';
 import { LiveGateway, SubscribeAck } from './live.gateway';
@@ -54,11 +55,19 @@ async function startApp(env: { flushMs: number; maxPerTag?: number; auth?: boole
         provide: UsersService,
         useValue: {
           activeRole: (u: string) => (u === 'op' ? 'operator' : null),
+          tokenStamp: (u: string) => (u === 'op' ? 'v1' : null),
           verify: (u: string) => Promise.resolve({ username: u, role: 'operator' }),
         },
       },
       { provide: ConfigService, useValue: { get: (k: string) => values[k] } },
       { provide: IngestionService, useValue: { samples$: feed } },
+      {
+        provide: TagsService,
+        useValue: {
+          findAll: () => Promise.resolve(['A', 'B', 'C', 'D'].map((tag) => ({ tag }))),
+          changes$: new Subject(),
+        },
+      },
       { provide: AlarmsService, useValue: { events$: alarmFeed } },
       { provide: MetricsCollectorService, useValue: metrics },
     ],
@@ -277,6 +286,25 @@ describe('LiveGateway com autenticação', () => {
     expect(await connects()).toBe(false);
     expect(await connects({ token: 'lixo.lixo' })).toBe(false);
     expect(await connects({ token: ctx.auth.sign('op', Date.now() - 1000) })).toBe(false);
+  });
+
+  it('derruba a conexão aberta quando o token deixa de valer', async () => {
+    const socket = io(`${ctx.url}/live`, {
+      transports: ['websocket'],
+      forceNew: true,
+      reconnection: false,
+      auth: { token: ctx.auth.sign('op', Date.now() + 300) },
+    });
+    socks.push(socket);
+    await new Promise<void>((resolve) => socket.once('connect', () => resolve()));
+    const gone = new Promise<void>((resolve) => socket.once('disconnect', () => resolve()));
+
+    ctx.app.get(LiveGateway).dropInvalid();
+    expect(socket.connected).toBe(true); // token ainda válido: fica
+    await new Promise((r) => setTimeout(r, 400));
+    ctx.app.get(LiveGateway).dropInvalid();
+    await gone;
+    expect(socket.connected).toBe(false);
   });
 
   it('aceita conexão com token válido', async () => {

@@ -11,6 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
+import { createHash } from 'crypto';
 import { Repository } from 'typeorm';
 import { Env } from '../config/env.validation';
 import { Role } from './role';
@@ -20,6 +21,9 @@ import { User } from './user.entity';
 export type PublicUser = Pick<User, 'id' | 'username' | 'role' | 'active' | 'createdAt'>;
 
 export const MIN_PASSWORD_LENGTH = 8;
+
+const stampOf = (passwordHash: string) =>
+  createHash('sha256').update(passwordHash).digest('base64url').slice(0, 16);
 
 function toPublic(u: User): PublicUser {
   return { id: u.id, username: u.username, role: u.role, active: u.active, createdAt: u.createdAt };
@@ -38,8 +42,11 @@ function toPublic(u: User): PublicUser {
 export class UsersService implements OnModuleInit {
   private readonly logger = new Logger(UsersService.name);
   private roles = new Map<string, Role>();
+  private stamps = new Map<string, string>();
   /** Hash de uma senha qualquer: gasta o mesmo tempo ao recusar um usuário inexistente. */
   private dummyHash?: Promise<string>;
+  /** Fim da última alteração de usuário (ver serial). */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
@@ -54,6 +61,15 @@ export class UsersService implements OnModuleInit {
   /** Perfil do usuário ativo, ou null se não existe ou está inativo. */
   activeRole(username: string): Role | null {
     return this.roles.get(username) ?? null;
+  }
+
+  /**
+   * Marca da senha atual do usuário ativo (resumo do hash), gravada no token:
+   * trocar a senha, ou remover e recriar o usuário, muda a marca e invalida os
+   * tokens antigos. Null se não existe ou está inativo.
+   */
+  tokenStamp(username: string): string | null {
+    return this.stamps.get(username) ?? null;
   }
 
   /** Confere usuário e senha; devolve o usuário ou lança 401. */
@@ -89,7 +105,30 @@ export class UsersService implements OnModuleInit {
     return toPublic(user);
   }
 
-  async update(
+  update(
+    id: string,
+    changes: { role?: Role; active?: boolean; password?: string },
+  ): Promise<PublicUser> {
+    return this.serial(() => this.doUpdate(id, changes));
+  }
+
+  remove(id: string): Promise<void> {
+    return this.serial(() => this.doRemove(id));
+  }
+
+  /**
+   * Uma alteração por vez: conferir se resta outro admin e gravar são dois
+   * passos, e dois pedidos simultâneos (cada um rebaixando um admin
+   * diferente) passariam ambos na conferência, deixando o sistema sem admin.
+   * Como o cache de perfis, vale para uma instância da API.
+   */
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async doUpdate(
     id: string,
     changes: { role?: Role; active?: boolean; password?: string },
   ): Promise<PublicUser> {
@@ -107,7 +146,7 @@ export class UsersService implements OnModuleInit {
     return toPublic(user);
   }
 
-  async remove(id: string): Promise<void> {
+  private async doRemove(id: string): Promise<void> {
     const user = await this.find(id);
     if (user.role === 'admin' && user.active) await this.assertAnotherAdmin(user);
     await this.repo.remove(user);
@@ -124,6 +163,7 @@ export class UsersService implements OnModuleInit {
     if (!user || !ok) throw new ForbiddenException('Senha atual incorreta.');
     user.passwordHash = await argon2.hash(next);
     await this.repo.save(user);
+    await this.reload();
   }
 
   private async find(id: string): Promise<User> {
@@ -146,6 +186,7 @@ export class UsersService implements OnModuleInit {
   private async reload() {
     const active = await this.repo.findBy({ active: true });
     this.roles = new Map(active.map((u) => [u.username, u.role]));
+    this.stamps = new Map(active.map((u) => [u.username, stampOf(u.passwordHash)]));
   }
 
   private getDummyHash(): Promise<string> {
@@ -154,14 +195,21 @@ export class UsersService implements OnModuleInit {
 
   /**
    * Com a tabela vazia e a autenticação ligada, cria o primeiro admin a partir
-   * de AUTH_USER/AUTH_PASSWORD. Depois disso, essas variáveis não valem mais
-   * como credencial: os usuários passam a viver só no banco.
+   * de AUTH_USER/AUTH_PASSWORD (a API não sobe se a senha for curta). Depois
+   * disso, essas variáveis não valem mais como credencial e podem sair do
+   * .env: os usuários passam a viver só no banco.
    */
   private async seedAdmin() {
     if (!this.config.get('AUTH_ENABLED', { infer: true })) return;
     if ((await this.repo.count()) > 0) return;
     const username = this.config.get('AUTH_USER', { infer: true });
     const password = this.config.get('AUTH_PASSWORD', { infer: true });
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      throw new Error(
+        `Não há usuários: defina AUTH_PASSWORD com ao menos ${MIN_PASSWORD_LENGTH} ` +
+          'caracteres para criar o primeiro administrador.',
+      );
+    }
     await this.repo.save(
       this.repo.create({
         username,

@@ -190,9 +190,9 @@ export function validateEnv(raw: Raw): Env {
     RETENTION_DAYS: int('RETENTION_DAYS', 90, MIN_RETENTION_DAYS, 36_500),
   };
 
-  // Com a autenticação ligada, recusa subir sem senha ou com segredo fraco.
+  // Com a autenticação ligada, recusa subir com segredo fraco. AUTH_PASSWORD
+  // só é exigida enquanto não houver usuários no banco (UsersService).
   if (env.AUTH_ENABLED) {
-    if (env.AUTH_PASSWORD === '') errors.push('AUTH_ENABLED=true exige AUTH_PASSWORD');
     if (env.AUTH_SECRET.length < 32 || env.AUTH_SECRET === EXAMPLE_AUTH_SECRET) {
       errors.push(
         'AUTH_ENABLED=true exige AUTH_SECRET aleatório com 32 caracteres ou mais ' +

@@ -11,7 +11,7 @@ export interface AuthUser {
 }
 
 /** Validade do token. */
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+export const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Usuário atribuído às requisições quando a autenticação está desligada (sem restrição de perfil). */
 export const ANONYMOUS: AuthUser = { username: 'anônimo', role: 'admin' };
@@ -19,7 +19,7 @@ export const ANONYMOUS: AuthUser = { username: 'anônimo', role: 'admin' };
 /**
  * Autenticação por token HMAC, didaticamente simples:
  *
- *   token = base64url(JSON {user, exp}) + "." + base64url(HMAC-SHA256(payload, AUTH_SECRET))
+ *   token = base64url(JSON {user, exp, v}) + "." + base64url(HMAC-SHA256(payload, AUTH_SECRET))
  *
  * Quem não conhece AUTH_SECRET não consegue gerar uma assinatura válida, e a
  * expiração (24 h) faz parte do conteúdo assinado. Não há sessão no servidor:
@@ -28,7 +28,8 @@ export const ANONYMOUS: AuthUser = { username: 'anônimo', role: 'admin' };
  * Usuários e perfis ficam no banco (senha com hash argon2, ver UsersService).
  * O token só identifica o usuário; o perfil é lido de UsersService a cada
  * validação, então desativar um usuário ou trocar seu perfil vale na hora,
- * sem esperar o token expirar.
+ * sem esperar o token expirar. `v` é a marca da senha no momento do login
+ * (UsersService.tokenStamp): trocar a senha invalida os tokens anteriores.
  */
 @Injectable()
 export class AuthService {
@@ -61,9 +62,11 @@ export class AuthService {
       const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
         user?: unknown;
         exp?: unknown;
+        v?: unknown;
       };
       if (typeof data.user !== 'string' || typeof data.exp !== 'number') return null;
       if (data.exp < Date.now()) return null;
+      if (data.v !== this.users.tokenStamp(data.user)) return null;
       const role = this.users.activeRole(data.user);
       return role ? { username: data.user, role } : null;
     } catch {
@@ -79,8 +82,10 @@ export class AuthService {
     return typeof queryToken === 'string' ? queryToken : undefined;
   }
 
+  /** Token para o usuário, preso à senha atual dele. */
   sign(username: string, exp: number): string {
-    const payload = Buffer.from(JSON.stringify({ user: username, exp })).toString('base64url');
+    const v = this.users.tokenStamp(username);
+    const payload = Buffer.from(JSON.stringify({ user: username, exp, v })).toString('base64url');
     return `${payload}.${this.signature(payload)}`;
   }
 
