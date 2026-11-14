@@ -9,7 +9,8 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-scada}
       POSTGRES_DB: ${DB_NAME:-scada}
     ports:
-      - '${DB_PORT:-5433}:5432'
+      # Só nesta máquina: a senha padrão não pode ficar exposta à rede.
+      - '127.0.0.1:${DB_PORT:-5433}:5432'
     volumes:
       # O schema é criado pelas migrations (src/database/migrations), aplicadas
       # na subida da API ou com `npm run migration:run`.
@@ -27,7 +28,9 @@ services:
     container_name: talos-mosquitto
     restart: unless-stopped
     ports:
-      - '1883:1883'
+      # Só nesta máquina por padrão. Para dispositivos da rede publicarem,
+      # defina MQTT_BIND=0.0.0.0 no .env (o broker não tem senha).
+      - '${MQTT_BIND:-127.0.0.1}:1883:1883'
     volumes:
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
@@ -38,7 +41,7 @@ services:
     container_name: talos-adminer
     restart: unless-stopped
     ports:
-      - '8080:8080'
+      - '127.0.0.1:8080:8080'
     depends_on:
       timescaledb:
         condition: service_healthy

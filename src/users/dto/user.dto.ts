@@ -1,4 +1,3 @@
-import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -33,7 +32,6 @@ export class UpdateUserDto {
   role?: Role;
 
   @IsOptional()
-  @Type(() => Boolean)
   @IsBoolean()
   active?: boolean;
 

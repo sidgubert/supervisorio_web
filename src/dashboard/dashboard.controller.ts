@@ -1,6 +1,8 @@
-import { Controller, Get, MessageEvent, Sse } from '@nestjs/common';
+import { Controller, Get, Headers, MessageEvent, Query, Sse } from '@nestjs/common';
 import { interval, Observable } from 'rxjs';
 import { AlarmsService } from '../alarms/alarms.service';
+import { AllowQueryToken } from '../auth/auth.guard';
+import { AuthService } from '../auth/auth.service';
 import { Sample } from '../ingestion/sample';
 import { LatestSample, MeasurementsService } from '../measurements/measurements.service';
 import { MetricsCollectorService } from '../metrics/metrics-collector.service';
@@ -25,6 +27,7 @@ export class DashboardController {
     private readonly tags: TagsService,
     private readonly feed: LiveFeedService,
     private readonly metrics: MetricsCollectorService,
+    private readonly auth: AuthService,
   ) {}
 
   /**
@@ -53,9 +56,18 @@ export class DashboardController {
    *   alarm:  { change: raised | cleared | acknowledged, alarm }
    *   ping:   a cada KEEPALIVE_MS, sem conteúdo
    * As amostras saem agrupadas a cada LIVE_FLUSH_MS (LiveFeedService).
+   *
+   * O guard só confere o token na conexão; a cada ping ele é conferido de
+   * novo, e o stream encerra se deixou de valer (venceu, usuário desativado
+   * ou senha trocada).
    */
+  @AllowQueryToken()
   @Sse('stream')
-  stream(): Observable<MessageEvent> {
+  stream(
+    @Headers('authorization') authorization?: string,
+    @Query('token') queryToken?: string,
+  ): Observable<MessageEvent> {
+    const token = AuthService.extractToken(authorization, queryToken);
     return new Observable<MessageEvent>((subscriber) => {
       this.metrics.sseConnected();
       const subscriptions = [
@@ -73,7 +85,10 @@ export class DashboardController {
           subscriber.next({ data: { type: 'alarm', change: e.type, alarm: e.alarm } });
           this.metrics.sseSent(1);
         }),
-        interval(KEEPALIVE_MS).subscribe(() => subscriber.next({ data: { type: 'ping' } })),
+        interval(KEEPALIVE_MS).subscribe(() => {
+          if (this.auth.validateToken(token)) subscriber.next({ data: { type: 'ping' } });
+          else subscriber.complete();
+        }),
       ];
       return () => {
         for (const s of subscriptions) s.unsubscribe();

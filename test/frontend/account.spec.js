@@ -39,7 +39,7 @@ describe('trocar a própria senha', () => {
   it('envia a senha atual e a nova, e limpa o formulário', async () => {
     const api = await openAccount({
       me: { username: 'maria', role: 'operator' },
-      routes: { 'POST /api/auth/password': response(null, 204) },
+      routes: { 'POST /api/auth/password': response({ token: 'tok-novo' }) },
     });
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('Senha atual'), 'senha-antiga');
@@ -52,6 +52,8 @@ describe('trocar a própria senha', () => {
       password: 'senha-nova-1',
     });
     expect(screen.getByLabelText('Senha atual')).toHaveValue('');
+    // O token antigo deixou de valer: a sessão segue com o novo.
+    expect(localStorage.getItem('talos_token')).toBe('tok-novo');
   });
 
   it('senha atual errada mostra o erro sem encerrar a sessão', async () => {

@@ -1,4 +1,4 @@
-import { apiFetch, can } from './auth.js';
+import { apiFetch, can, setSession } from './auth.js';
 import { apiError, esc, fmtDateTime, ROLE_LABEL } from './util.js';
 
 /**
@@ -127,6 +127,8 @@ passwordForm.addEventListener('submit', async (e) => {
     body: JSON.stringify({ current: data.current, password: data.password }),
   });
   if (res.ok) {
+    // A troca invalida o token antigo; a API devolve o novo.
+    setSession((await res.json()).token, me.username);
     say(msg, 'Senha alterada.', 'ok');
     passwordForm.reset();
   } else {

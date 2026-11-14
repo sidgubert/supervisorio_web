@@ -49,12 +49,12 @@ function fakeRepo() {
   return repo;
 }
 
-function setup(auth = true) {
+function setup(auth = true, password = 'inicial-123') {
   const repo = fakeRepo();
   const values: Partial<Env> = {
     AUTH_ENABLED: auth,
     AUTH_USER: 'root',
-    AUTH_PASSWORD: 'inicial-123',
+    AUTH_PASSWORD: password,
   };
   const config = { get: (k: keyof Env) => values[k] } as unknown as ConfigService<Env, true>;
   const service = new UsersService(repo as unknown as Repository<User>, config);
@@ -81,6 +81,19 @@ describe('UsersService', () => {
     await service.create({ username: 'maria', password: 'senha-da-maria', role: 'viewer' });
     await service.onModuleInit();
     expect(repo.rows.map((r) => r.username)).toEqual(['maria']);
+  });
+
+  it.each(['', 'curta'])('sem usuários, não sobe com AUTH_PASSWORD "%s"', async (password) => {
+    const { repo, service } = setup(true, password);
+    await expect(service.onModuleInit()).rejects.toThrow(/AUTH_PASSWORD com ao menos 8/);
+    expect(repo.rows).toHaveLength(0);
+  });
+
+  it('com usuários no banco, AUTH_PASSWORD não é mais necessária', async () => {
+    const { repo, service } = setup(true, '');
+    await service.create({ username: 'maria', password: 'senha-da-maria', role: 'admin' });
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    expect(repo.rows).toHaveLength(1);
   });
 
   it('verify aceita a senha certa e recusa errada, desconhecido e inativo', async () => {
@@ -137,13 +150,35 @@ describe('UsersService', () => {
     });
   });
 
+  it('dois admins rebaixados ao mesmo tempo: só o primeiro pedido passa', async () => {
+    const { repo, service } = setup();
+    await service.onModuleInit();
+    const chefe = await service.create({
+      username: 'chefe',
+      password: 'senha-do-chefe',
+      role: 'admin',
+    });
+    const results = await Promise.allSettled([
+      service.update(repo.rows[0].id, { role: 'viewer' }),
+      service.update(chefe.id, { role: 'viewer' }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+    expect(repo.rows.filter((r) => r.role === 'admin' && r.active)).toHaveLength(1);
+    // Uma falha não trava a fila.
+    await expect(service.update(chefe.id, { active: true })).resolves.toBeDefined();
+  });
+
   it('changePassword exige a senha atual', async () => {
     const { service } = setup();
     await service.onModuleInit();
     await expect(service.changePassword('root', 'errada', 'nova-senha-1')).rejects.toThrow(
       ForbiddenException,
     );
+    const before = service.tokenStamp('root');
     await service.changePassword('root', 'inicial-123', 'nova-senha-1');
     await expect(service.verify('root', 'nova-senha-1')).resolves.toBeDefined();
+    // A marca do token muda: os tokens emitidos com a senha antiga caem.
+    expect(service.tokenStamp('root')).not.toBe(before);
+    expect(service.tokenStamp('root')).not.toBeNull();
   });
 });

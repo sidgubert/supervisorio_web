@@ -175,6 +175,8 @@ it('atualiza a cada 5 s enquanto a tela está aberta, e para ao sair', async () 
 
   await jest.advanceTimersByTimeAsync(5000);
   expect(overviewCalls()).toBe(2);
+  // O armazenamento (consulta pesada) não entra na atualização periódica.
+  expect(requestsTo(api, 'GET', '/api/metrics/storage')).toHaveLength(1);
 
   metrics.stopMetricsRefresh();
   await jest.advanceTimersByTimeAsync(15000);

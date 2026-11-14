@@ -359,6 +359,9 @@ alarme independente, avaliado a cada amostra que chega, de qualquer fonte:
   ou, sem ela, `ALARM_HYSTERESIS_PCT` (padrão 2%) do limite. Sem banda morta,
   um valor oscilando em cima do limite geraria uma rajada de alarmes.
 - Amostras com qualidade Bad não são avaliadas (o valor é o último bom).
+- Amostras atrasadas (com horário anterior ao da última já avaliada da tag,
+  ex: um dispositivo reenviando o que guardou) vão para o histórico, mas
+  não ativam nem normalizam alarmes.
 - Um alarme fica **aberto** (em `GET /api/alarms`) enquanto estiver ativo **ou**
   não reconhecido. Estados: `ACTIVE_UNACKED`, `ACTIVE_ACKED`,
   `CLEARED_UNACKED` e, fora da lista, `CLOSED` (normalizado e reconhecido).
@@ -454,14 +457,15 @@ Sem senha, ou com segredo curto ou igual ao do exemplo, a API não sobe.
 - `POST /api/auth/login` com `{"username": ..., "password": ...}` devolve
   `{ token, user }`. O token vale 24 h e vai no cabeçalho
   `Authorization: Bearer <token>`; no SSE, que não aceita cabeçalhos, vai em
-  `?token=`; no socket.io, em `auth: { token }`.
+  `?token=` (aceito só nessa rota); no socket.io, em `auth: { token }`.
 - Sem token válido, a API responde `401`. Ficam abertos só
   `GET /api/health`, `GET /api/auth/status` e o login. Os arquivos do
   dashboard carregam sem token, mas a tela leva ao login antes de chamar a
   API.
-- No máximo 5 tentativas de login por minuto por IP (`429` acima disso), o
-  que inviabiliza adivinhar a senha por tentativa e erro. A troca de senha
-  entra na mesma conta.
+- Depois de 5 senhas erradas num minuto para o mesmo usuário, vindas do
+  mesmo IP, a API responde `429`, o que inviabiliza adivinhar a senha por
+  tentativa e erro. Logins certos não contam, e a troca de senha (senha
+  atual errada) entra na mesma conta.
 - O token é `payload.assinatura` (HMAC-SHA256), escrito à mão para ser fácil
   de estudar em `src/auth/auth.service.ts`. Ele só identifica o usuário; o
   perfil é consultado a cada requisição.
@@ -487,7 +491,10 @@ Cada usuário tem um perfil, e o maior herda o que o menor pode:
   perfil não pode usar (botões de reconhecer, tela Configuração, edição do
   sinótico), mas quem decide é a API (`src/auth/roles.guard.ts`).
 - Trocar o perfil de um usuário ou desativá-lo vale na hora, sem esperar o
-  token expirar. Trocar a senha não invalida os tokens já emitidos.
+  token expirar. Trocar ou redefinir a senha invalida os tokens já emitidos
+  (quem troca a própria senha recebe um token novo e segue conectado). As
+  conexões de tempo real já abertas (SSE e WebSocket) conferem o token de
+  novo a cada 25 s e são encerradas quando ele deixa de valer.
 - A tela **Conta** troca a própria senha (exige a atual) e, para o
   administrador, cria usuários, muda perfis, desativa, redefine senhas e
   remove. A API não deixa o sistema ficar sem um administrador ativo.
@@ -535,7 +542,7 @@ exigem um perfil mínimo, indicado na descrição (ver
 | GET    | `/api/auth/status` \*                              | Se o login está ligado                               |
 | POST   | `/api/auth/login` \*                               | Login (ver [Autenticação](#autenticação))            |
 | GET    | `/api/auth/me`                                     | Usuário do token, com o perfil                       |
-| POST   | `/api/auth/password`                               | Troca a própria senha (`{ current, password }`)      |
+| POST   | `/api/auth/password`                               | Troca a própria senha; devolve `{ token }` novo      |
 | GET    | `/api/users`                                       | Usuários (perfil `admin`, como as três abaixo)       |
 | POST   | `/api/users`                                       | Cria um usuário (`409` se o nome já existir)         |
 | PATCH  | `/api/users/:id`                                   | Altera perfil, situação (`active`) ou senha          |
@@ -629,7 +636,7 @@ problemas.
 | `RETENTION_DAYS`            | `90`                       | Prazo da retenção, em dias (mínimo 8)                             |
 | `AUTH_ENABLED`              | `false`                    | Liga o login                                                      |
 | `AUTH_USER`                 | `operador`                 | Nome do primeiro administrador (criado com a tabela vazia)        |
-| `AUTH_PASSWORD`             | vazio                      | Senha inicial dele (obrigatória com o login ligado)               |
+| `AUTH_PASSWORD`             | vazio                      | Senha inicial dele (8+ caracteres; só enquanto não há usuários)   |
 | `AUTH_SECRET`               | vazio                      | Segredo que assina os tokens (32+ caracteres aleatórios)          |
 | `SIM_ENABLED`               | `true`                     | Liga o simulador de senoides                                      |
 | `SIM_INTERVAL_MS`           | `1000`                     | Intervalo do simulador                                            |
@@ -727,7 +734,9 @@ números obtidos estão em [docs/experimentos.md](docs/experimentos.md)):
 | `npm run sim:verify`         | Confere cada valor gravado pelo simulador e procura amostras perdidas   |
 
 Com `SIM_TAGS` e `SIM_INTERVAL_MS` o simulador vira gerador de carga (ex:
-1.000 tags a cada 100 ms = 10 mil amostras/s). O ruído do sinal é
+1.000 tags a cada 100 ms = 10 mil amostras/s). As tags geradas são gravadas
+no banco, mas, por não estarem no cadastro, não vão para o tempo real (SSE e
+WebSocket) nem para o dashboard. O ruído do sinal é
 determinístico (depende só da tag e do instante), então cada amostra gravada
 pode ser recalculada e conferida pelo `sim:verify`.
 
@@ -774,7 +783,7 @@ tools/
   sim-verify.ts           conferência dos dados do simulador (npm run sim:verify)
 jest.esm-transformer.cjs  converte código ESM para o Jest (frontend e dependências só-ESM)
 src/
-  main.ts                 bootstrap: prefixo /api, dashboard estático, CORS, shutdown hooks
+  main.ts                 bootstrap: prefixo /api, dashboard estático, shutdown hooks
   app.module.ts           configuração, conexão com o banco, módulos
   app.controller.ts       GET /api e GET /api/health
   auth/                   login, token, guarda global (@Public() libera uma rota)
@@ -837,13 +846,12 @@ que só se justifica se outras dependências passarem a exigir.
 ## Próximos passos
 
 - **Sessões.** O token não pode ser revogado antes das 24 h, a não ser
-  desativando o usuário, e trocar a senha não encerra as sessões abertas. O
+  desativando o usuário ou trocando a senha dele. O
   perfil dos usuários ativos fica em memória, o que supõe uma única instância
   da API. Um padrão como JWT/OIDC com renovação resolveria os dois pontos.
-- **CORS e HTTPS.** O CORS está liberado para qualquer origem (o token vai no
-  cabeçalho, não em cookie, então outro site não consegue usá-lo sozinho), e
-  a API fala HTTP puro. Fora do laboratório: restringir as origens e pôr um
-  proxy com HTTPS na frente.
+- **HTTPS.** A API fala HTTP puro (e não libera CORS: só o próprio dashboard,
+  servido por ela, a chama pelo navegador). Fora do laboratório: pôr um proxy
+  com HTTPS na frente.
 
 ## Licença
 

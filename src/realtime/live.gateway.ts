@@ -21,6 +21,8 @@ import { LiveFeedService } from './live-feed.service';
 /** Sala de quem assina todas as tags. */
 const ALL = '*';
 const MAX_TAGS_PER_SUBSCRIBE = 200;
+/** Intervalo em que o token de cada conexão aberta é conferido de novo. */
+const RECHECK_MS = 25_000;
 
 const room = (tag: string) => `tag:${tag}`;
 
@@ -41,12 +43,13 @@ export type SubscribeAck =
  *   servidor -> 'alarm'      { type, alarm }      (a todos os clientes)
  *              type: raised | cleared | acknowledged
  */
-@WebSocketGateway({ namespace: '/live', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/live' })
 export class LiveGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
 {
   private readonly logger = new Logger(LiveGateway.name);
   private subscriptions: Subscription[] = [];
+  private recheckTimer?: NodeJS.Timeout;
 
   @WebSocketServer()
   server!: Namespace;
@@ -68,10 +71,24 @@ export class LiveGateway
         this.metrics.wsSent(1);
       }),
     ];
+    this.recheckTimer = setInterval(() => this.dropInvalid(), RECHECK_MS);
+    this.recheckTimer.unref();
   }
 
   onModuleDestroy() {
     for (const s of this.subscriptions) s.unsubscribe();
+    clearInterval(this.recheckTimer);
+  }
+
+  /**
+   * Derruba quem perdeu o acesso depois de conectar: token vencido, usuário
+   * desativado ou senha trocada.
+   */
+  dropInvalid() {
+    for (const client of this.server.sockets.values()) {
+      const { token } = client.data as { token?: string };
+      if (!this.auth.validateToken(token)) client.disconnect(true);
+    }
   }
 
   /** Com a autenticação ligada, recusa conexões sem token válido. */
@@ -80,13 +97,14 @@ export class LiveGateway
       auth?: Record<string, unknown>;
       query?: Record<string, unknown>;
     };
-    const token = handshake.auth?.token ?? handshake.query?.token;
-    if (!this.auth.validateToken(typeof token === 'string' ? token : undefined)) {
+    const raw = handshake.auth?.token ?? handshake.query?.token;
+    const token = typeof raw === 'string' ? raw : undefined;
+    if (!this.auth.validateToken(token)) {
       client.emit('error', { message: 'Autenticação necessária.' });
       client.disconnect(true);
       return;
     }
-    (client.data as { counted?: boolean }).counted = true;
+    Object.assign(client.data as object, { counted: true, token });
     this.metrics.wsConnected();
   }
 

@@ -43,19 +43,16 @@ describe('validateEnv', () => {
     });
   });
 
-  it('com a autenticação ligada, exige senha e segredo forte', () => {
-    expect(() => validateEnv({ AUTH_ENABLED: 'true' })).toThrow(/exige AUTH_PASSWORD/);
+  it('com a autenticação ligada, exige segredo forte', () => {
+    expect(() => validateEnv({ AUTH_ENABLED: 'true' })).toThrow(/AUTH_SECRET aleatório/);
     expect(() =>
       validateEnv({ AUTH_ENABLED: 'true', AUTH_PASSWORD: 'x', AUTH_SECRET: 'curto' }),
     ).toThrow(/AUTH_SECRET aleatório com 32 caracteres/);
     expect(() =>
       validateEnv({ AUTH_ENABLED: 'true', AUTH_PASSWORD: 'x', AUTH_SECRET: EXAMPLE_AUTH_SECRET }),
     ).toThrow(/AUTH_SECRET aleatório/);
-    const ok = validateEnv({
-      AUTH_ENABLED: 'true',
-      AUTH_PASSWORD: 'x',
-      AUTH_SECRET: 'a'.repeat(32),
-    });
+    // AUTH_PASSWORD só é exigida na criação do primeiro admin (UsersService).
+    const ok = validateEnv({ AUTH_ENABLED: 'true', AUTH_SECRET: 'a'.repeat(32) });
     expect(ok.AUTH_ENABLED).toBe(true);
   });
 

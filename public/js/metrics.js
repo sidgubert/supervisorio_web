@@ -146,14 +146,18 @@ function renderProtocols({ profiles }) {
     </table>`;
 }
 
-async function loadMetrics() {
-  const [overview, storage, protocols] = await Promise.all([
+/**
+ * O armazenamento varre um dia de medições no banco: só é consultado ao abrir
+ * a tela e no botão Atualizar, não na atualização periódica.
+ */
+async function loadMetrics(withStorage = true) {
+  const [overview, protocols, storage] = await Promise.all([
     apiFetch('/api/metrics/overview'),
-    apiFetch('/api/metrics/storage'),
     apiFetch('/api/metrics/protocols'),
+    withStorage ? apiFetch('/api/metrics/storage') : null,
   ]);
   if (overview.ok) renderIngest(await overview.json());
-  if (storage.ok) renderStorage(await storage.json());
+  if (storage?.ok) renderStorage(await storage.json());
   if (protocols.ok) renderProtocols(await protocols.json());
 }
 
@@ -181,13 +185,13 @@ async function exportCsv() {
 
 export function initMetrics() {
   if (!bound) {
-    document.getElementById('refresh-metrics').addEventListener('click', loadMetrics);
+    document.getElementById('refresh-metrics').addEventListener('click', () => loadMetrics());
     document.getElementById('export-csv').addEventListener('click', exportCsv);
     bound = true;
   }
   void loadMetrics();
   if (refreshTimer) clearInterval(refreshTimer);
-  refreshTimer = setInterval(loadMetrics, 5000);
+  refreshTimer = setInterval(() => loadMetrics(false), 5000);
 }
 
 export function stopMetricsRefresh() {
