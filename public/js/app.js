@@ -25,6 +25,8 @@ import { ROLE_LABEL } from './util.js';
 
 const connDot = document.getElementById('conn-dot');
 const connLabel = document.getElementById('conn-label');
+const nav = document.getElementById('main-nav');
+const navToggle = document.getElementById('nav-toggle');
 let currentView = 'dashboard';
 let authEnabled = false;
 let me = null;
@@ -35,8 +37,16 @@ function setConnection(on, label) {
   connLabel.textContent = label;
 }
 
+/** Menu das telas em tela estreita (em tela larga a navegação fica sempre à vista). */
+function setMenu(open) {
+  nav.classList.toggle('nav--open', open);
+  navToggle.setAttribute('aria-expanded', String(open));
+  navToggle.textContent = open ? 'Fechar menu' : 'Abrir menu';
+}
+
 function showView(name) {
   currentView = name;
+  setMenu(false);
   document.querySelectorAll('.view').forEach((el) => {
     el.hidden = el.id !== `view-${name}`;
     el.classList.toggle('view--active', el.id === `view-${name}`);
@@ -124,6 +134,12 @@ async function bootstrap() {
     });
   });
   window.addEventListener('hashchange', route);
+  navToggle.addEventListener('click', () => setMenu(!nav.classList.contains('nav--open')));
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !nav.classList.contains('nav--open')) return;
+    setMenu(false);
+    navToggle.focus();
+  });
 
   // Configuração salva: atualiza unidades/descrições e o sinótico.
   window.addEventListener('talos:tags-changed', async () => {

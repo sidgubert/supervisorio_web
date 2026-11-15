@@ -46,15 +46,19 @@ describe('apiError', () => {
     await expect(apiError(res)).resolves.toBe('alarmH inválido; engMin inválido');
   });
 
-  it('usa a mensagem única ou o status', async () => {
+  it('usa a mensagem única; sem mensagem, um texto sem código cru', async () => {
     await expect(apiError(response({ message: 'Tag não encontrada' }, 404))).resolves.toBe(
       'Tag não encontrada',
     );
-    await expect(apiError(response({}, 503))).resolves.toBe('503');
+    await expect(apiError(response({}, 503))).resolves.toBe(
+      'Não foi possível concluir. Tente de novo em instantes.',
+    );
   });
 
-  it('resposta sem JSON vira "erro <status>"', async () => {
+  it('resposta sem JSON vira um texto que diz o que fazer', async () => {
     const res = { status: 502, json: () => Promise.reject(new SyntaxError('não é JSON')) };
-    await expect(apiError(res)).resolves.toBe('erro 502');
+    await expect(apiError(res)).resolves.toBe(
+      'Não foi possível concluir. Tente de novo em instantes.',
+    );
   });
 });

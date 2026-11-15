@@ -88,7 +88,7 @@ describe('usuários (administrador)', () => {
     expect(within(rowOf('maria')).getByRole('button', { name: 'Remover' })).toBeEnabled();
 
     const own = within(rowOf('root'));
-    expect(own.getByText('(você)')).toBeInTheDocument();
+    expect(own.getByText(/^\(você;/)).toBeInTheDocument();
     expect(own.getByRole('combobox')).toBeDisabled();
     expect(own.getByRole('button', { name: 'Desativar' })).toBeDisabled();
     expect(own.getByRole('button', { name: 'Remover' })).toBeDisabled();
@@ -163,7 +163,9 @@ describe('usuários (administrador)', () => {
 
     await user.type(screen.getByLabelText('Nova senha de maria'), 'curta');
     await user.click(within(rowOf('maria')).getByRole('button', { name: 'Redefinir senha' }));
-    expect(screen.getByText('A nova senha deve ter ao menos 8 caracteres.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Use ao menos 8 caracteres na nova senha de maria.'),
+    ).toBeInTheDocument();
     expect(requestsTo(api, 'PATCH', `/api/users/${MARIA.id}`)).toHaveLength(0);
 
     await user.type(screen.getByLabelText('Nova senha de maria'), '-mas-agora-longa');
@@ -178,14 +180,24 @@ describe('usuários (administrador)', () => {
     const api = await openAccount({
       routes: { [`DELETE /api/users/${MARIA.id}`]: response(null, 204) },
     });
-    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
     const user = userEvent.setup();
 
+    // O diálogo diz quem será removido e começa com o foco em Cancelar.
     await user.click(within(rowOf('maria')).getByRole('button', { name: 'Remover' }));
+    const dialog = screen.getByRole('dialog', { name: 'Remover o usuário "maria"?' });
+    expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toHaveFocus();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(requestsTo(api, 'DELETE', `/api/users/${MARIA.id}`)).toHaveLength(0);
 
-    confirm.mockReturnValue(true);
+    // Esc também cancela.
     await user.click(within(rowOf('maria')).getByRole('button', { name: 'Remover' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(requestsTo(api, 'DELETE', `/api/users/${MARIA.id}`)).toHaveLength(0);
+
+    await user.click(within(rowOf('maria')).getByRole('button', { name: 'Remover' }));
+    await user.click(screen.getByRole('button', { name: 'Remover usuário' }));
     expect(await screen.findByText('maria removido.')).toBeInTheDocument();
     expect(requestsTo(api, 'DELETE', `/api/users/${MARIA.id}`)).toHaveLength(1);
   });

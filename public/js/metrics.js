@@ -1,5 +1,14 @@
 import { apiFetch } from './auth.js';
-import { apiError, esc, fmtDateTime, fmtDuration, fmtNum } from './util.js';
+import {
+  apiError,
+  errorDetails,
+  esc,
+  fmtDateTime,
+  fmtDuration,
+  fmtNum,
+  showInlineError,
+  showLoadError,
+} from './util.js';
 
 let throughputChart;
 let refreshTimer;
@@ -157,6 +166,13 @@ async function loadMetrics(withStorage = true) {
     withStorage ? apiFetch('/api/metrics/storage') : null,
   ]);
   if (overview.ok) renderIngest(await overview.json());
+  else {
+    showLoadError(document.getElementById('ingest-stats'), {
+      what: 'as métricas de ingestão',
+      details: errorDetails(overview),
+      retry: () => loadMetrics(),
+    });
+  }
   if (storage?.ok) renderStorage(await storage.json());
   if (protocols.ok) renderProtocols(await protocols.json());
 }
@@ -169,7 +185,7 @@ async function exportCsv() {
   try {
     const res = await apiFetch(`/api/metrics/export?minutes=${minutes}&format=csv`);
     if (!res.ok) {
-      btn.title = await apiError(res);
+      showInlineError(btn, await apiError(res));
       return;
     }
     const url = URL.createObjectURL(await res.blob());

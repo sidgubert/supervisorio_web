@@ -96,7 +96,7 @@ function setup(tags: Partial<Tag>[], initialAlarms: Alarm[] = [], hysteresisPct 
   /** Emite uma amostra com horário deslocado, sem avançar o relógio. */
   const pushAt = (tag: string, value: number, offsetMs: number) => {
     const time = new Date(t + offsetMs);
-    samples.next([{ tag, value, quality: 192, time, source: 'mqtt', receivedAt: new Date(t) }]);
+    samples.next([{ tag, value, quality: 192, time, source: 'sim', receivedAt: new Date(t) }]);
   };
   const setTags = async (next: Partial<Tag>[]) => {
     registry = next.map((x) => ({ enabled: true, ...x }) as Tag);

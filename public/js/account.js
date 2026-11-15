@@ -1,5 +1,5 @@
 import { apiFetch, can, setSession } from './auth.js';
-import { apiError, esc, fmtDateTime, ROLE_LABEL } from './util.js';
+import { apiError, bindValidation, confirmAction, esc, fmtDateTime, ROLE_LABEL } from './util.js';
 
 /**
  * Tela "Conta": troca da própria senha (qualquer perfil) e, para o
@@ -11,6 +11,8 @@ const usersSection = document.getElementById('users-section');
 const userForm = document.getElementById('user-form');
 const usersMsg = document.getElementById('users-msg');
 const usersBody = document.getElementById('users-body');
+const validatePassword = bindValidation(passwordForm);
+const validateUser = bindValidation(userForm);
 
 let me = null;
 
@@ -23,20 +25,25 @@ function row(u) {
   const name = esc(u.username);
   // A própria conta não muda de perfil nem sai por aqui: evita o admin se trancar para fora.
   const self = u.username === me?.username;
-  const lock = self ? 'disabled title="Peça a outro administrador"' : '';
+  const lock = self ? 'disabled' : '';
   const roles = Object.entries(ROLE_LABEL)
     .map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${esc(l)}</option>`)
     .join('');
   return `
     <tr data-id="${esc(u.id)}" data-username="${name}" class="${u.active ? '' : 'row--inactive'}">
-      <td><code>${name}</code>${self ? ' <span class="muted">(você)</span>' : ''}</td>
+      <td><code>${name}</code>${
+        self
+          ? ' <span class="muted">(você; perfil e situação da própria conta só mudam por outro administrador)</span>'
+          : ''
+      }</td>
       <td><select data-act="role" aria-label="Perfil de ${name}" ${lock}>${roles}</select></td>
       <td>${u.active ? 'Ativo' : 'Inativo'}</td>
       <td>${fmtDateTime(u.createdAt)}</td>
       <td>
         <div class="user-actions">
-          <input type="password" aria-label="Nova senha de ${name}" placeholder="Nova senha"
-            autocomplete="new-password" />
+          <label>Nova senha de ${name}
+            <input type="password" autocomplete="new-password" />
+          </label>
           <button type="button" class="btn btn--sm" data-act="password">Redefinir senha</button>
           <button type="button" class="btn btn--sm" data-act="active" ${lock}>${
             u.active ? 'Desativar' : 'Ativar'
@@ -83,14 +90,22 @@ async function act(el) {
     case 'password': {
       const password = tr.querySelector('input[type="password"]').value;
       if (password.length < 8) {
-        say(usersMsg, 'A nova senha deve ter ao menos 8 caracteres.', 'err');
+        say(usersMsg, `Use ao menos 8 caracteres na nova senha de ${username}.`, 'err');
         return;
       }
       await send('PATCH', id, { password }, `Senha de ${username} redefinida.`);
       break;
     }
     case 'remove':
-      if (!window.confirm(`Remover o usuário "${username}"? Não é possível desfazer.`)) return;
+      if (
+        !(await confirmAction({
+          title: `Remover o usuário "${username}"?`,
+          body: 'A conta deixa de existir e a pessoa perde o acesso na hora. Não dá para desfazer.',
+          confirmLabel: 'Remover usuário',
+        }))
+      ) {
+        return;
+      }
       await send('DELETE', id, undefined, `${username} removido.`);
       break;
   }
@@ -106,6 +121,7 @@ usersBody.addEventListener('change', (e) => {
 
 userForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!validateUser()) return;
   const data = Object.fromEntries(new FormData(userForm).entries());
   const username = String(data.username).trim();
   const ok = await send(
@@ -119,6 +135,7 @@ userForm.addEventListener('submit', async (e) => {
 
 passwordForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!validatePassword()) return;
   const msg = passwordForm.querySelector('.config-msg');
   const data = Object.fromEntries(new FormData(passwordForm).entries());
   say(msg, 'Salvando…');

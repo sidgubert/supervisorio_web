@@ -14,7 +14,16 @@
         <h1>TALOS</h1>
         <small>supervisório web</small>
       </div>
-      <nav class="nav">
+      <button
+        id="nav-toggle"
+        class="btn btn--ghost nav-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="main-nav"
+      >
+        Abrir menu
+      </button>
+      <nav id="main-nav" class="nav" aria-label="Telas">
         <a href="#dashboard" class="nav__link nav__link--active" data-view="dashboard">Gráficos</a>
         <a href="#synoptic" class="nav__link" data-view="synoptic">Sinótico</a>
         <a href="#alarms" class="nav__link" data-view="alarms">Histórico de alarmes</a>
@@ -38,7 +47,7 @@
           <span id="tag-count" class="badge">0 tags</span>
         </div>
         <div id="charts-grid" class="charts-grid">
-          <p id="empty-state" class="empty-state">Aguardando dados…</p>
+          <p id="empty-state" class="empty-state">Carregando as variáveis…</p>
         </div>
       </section>
       <aside class="alarms-panel">
@@ -102,7 +111,7 @@
               <th>Normalizou</th>
               <th>Reconhecido</th>
               <th>Estado</th>
-              <th></th>
+              <th><span class="sr-only">Ações</span></th>
             </tr>
           </thead>
           <tbody id="alarm-history-body"></tbody>
@@ -203,6 +212,7 @@
       <div class="panel-head">
         <h2>Métricas e desempenho</h2>
         <div class="metrics-actions">
+          <label class="field-label" for="export-minutes">Período da exportação</label>
           <select id="export-minutes">
             <option value="15">Últimos 15 min</option>
             <option value="60" selected>Últimos 60 min</option>
@@ -218,7 +228,13 @@
         <section class="metric-card" id="ingest-card">
           <h3>Ingestão (tempo real)</h3>
           <div id="ingest-stats" class="metric-kpis"></div>
-          <div class="chart-wrap chart-wrap--tall"><canvas id="throughput-chart"></canvas></div>
+          <div class="chart-wrap chart-wrap--tall">
+            <canvas
+              id="throughput-chart"
+              role="img"
+              aria-label="Amostras por segundo, por fonte"
+            ></canvas>
+          </div>
         </section>
 
         <section class="metric-card" id="storage-card">

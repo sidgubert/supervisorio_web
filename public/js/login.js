@@ -1,9 +1,10 @@
 import { authStatus, setSession } from './auth.js';
 import { goTo } from './navigation.js';
-import { apiError } from './util.js';
+import { apiError, bindValidation } from './util.js';
 
 const form = document.getElementById('login-form');
 const err = document.getElementById('err');
+const validate = bindValidation(form);
 
 /** Com a autenticação desligada não há o que fazer aqui: vai direto ao dashboard. */
 async function initLogin() {
@@ -18,6 +19,7 @@ async function initLogin() {
 async function submit(e) {
   e.preventDefault();
   err.hidden = true;
+  if (!validate()) return;
   const body = {
     username: document.getElementById('user').value,
     password: document.getElementById('pass').value,
@@ -30,7 +32,10 @@ async function submit(e) {
     });
     if (!res.ok) {
       // 401: credenciais; 429: muitas tentativas (a mensagem diz quanto esperar).
-      err.textContent = res.status === 401 ? 'Usuário ou senha inválidos.' : await apiError(res);
+      err.textContent =
+        res.status === 401
+          ? 'Usuário ou senha não conferem. Digite de novo ou peça a um administrador para redefinir a senha.'
+          : await apiError(res);
       err.hidden = false;
       return;
     }
@@ -38,7 +43,7 @@ async function submit(e) {
     setSession(data.token, data.user.username);
     goTo('/');
   } catch {
-    err.textContent = 'Sem conexão com o servidor.';
+    err.textContent = 'Sem conexão com o servidor. Confira a rede e tente de novo.';
     err.hidden = false;
   }
 }

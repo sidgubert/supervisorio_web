@@ -1,5 +1,14 @@
 import { apiFetch, can } from './auth.js';
-import { apiError, esc, fmtDateTime, fmtNum, STATE_LABEL } from './util.js';
+import {
+  apiError,
+  errorDetails,
+  esc,
+  fmtDateTime,
+  fmtNum,
+  showInlineError,
+  showLoadError,
+  STATE_LABEL,
+} from './util.js';
 
 const tbody = document.getElementById('alarm-history-body');
 
@@ -10,19 +19,27 @@ async function ack(id, btn) {
     await refreshAlarmHistory();
   } else {
     btn.disabled = false;
-    btn.textContent = 'Erro';
-    btn.title = await apiError(res);
+    showInlineError(btn, await apiError(res));
   }
 }
 
 export async function refreshAlarmHistory() {
   const res = await apiFetch('/api/alarms/history?limit=200');
-  if (!res.ok) return;
+  if (!res.ok) {
+    // O erro fica dentro da moldura da tabela, que continua na tela.
+    tbody.innerHTML = '<tr><td colspan="8"></td></tr>';
+    showLoadError(tbody.querySelector('td'), {
+      what: 'o histórico de alarmes',
+      details: errorDetails(res),
+      retry: refreshAlarmHistory,
+    });
+    return;
+  }
   const rows = await res.json();
 
   if (rows.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="8" class="empty-state">Nenhum alarme nas últimas 24 h.</td></tr>';
+      '<tr><td colspan="8" class="empty-state">Nenhum alarme nas últimas 24 h. Os alarmes aparecem aqui quando uma tag passa de um limite.</td></tr>';
     return;
   }
 
