@@ -1,0 +1,149 @@
+# Backlog de evolução do TALOS, derivado das limitações, falhas de segurança e
+# trabalhos futuros descritos no artigo (seções Resultados/Discussão e Conclusão).
+#
+# Objetivo usado no alinhamento (goal alignment):
+#   Elevar o nível de prontidão e segurança da plataforma para implantação real
+#   em ambiente industrial conectado à internet.
+#
+# Campos: priority HIGH | MEDIUM | LOW; complexity simple | medium | complex;
+# status READY | IN_PROGRESS | DONE | BLOCKED; dependencies = itens que precisam
+# estar concluídos antes.
+items:
+  - id: BL-001
+    title: Tirar o token do fluxo SSE da URL
+    description: >-
+      Hoje o painel abre /api/dashboard/stream com ?token= porque o EventSource
+      não envia cabeçalhos; o token fica em histórico do navegador e em logs de
+      proxy. Emitir no login um cookie HttpOnly e SameSite=Strict, aceito pelo
+      AuthGuard, e remover o @AllowQueryToken e o withToken do painel. Ajustar
+      tools/sse-latency.ts e os testes de auth e do painel. Segurança da
+      autenticação para implantação conectada à internet.
+    priority: HIGH
+    complexity: medium
+    estimated_hours: 6
+    status: READY
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [bug, security, auth, sse]
+    dependencies: []
+
+  - id: BL-002
+    title: Validar a origem das conexões no canal socket.io
+    description: >-
+      O gateway /live não libera CORS, mas conexões WebSocket não passam pela
+      checagem de CORS do navegador: com o login desligado, uma página de outro
+      site consegue ler o stream ao vivo. Recusar no handshake (allowRequest) as
+      origens fora de uma lista configurável (ALLOWED_ORIGINS, padrão a própria
+      origem), com teste no live.gateway.spec. Segurança de rede para
+      implantação conectada à internet.
+    priority: HIGH
+    complexity: medium
+    estimated_hours: 3
+    status: READY
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [bug, security, websocket]
+    dependencies: []
+
+  - id: BL-003
+    title: Exigir autenticação no broker MQTT
+    description: >-
+      O Mosquitto do docker compose aceita conexões anônimas (allow_anonymous
+      true); quem alcança a porta 1883 publica valores falsos de processo e
+      dispara alarmes. Configurar arquivo de senhas e allow_anonymous false,
+      passar as credenciais à API (MQTT_USERNAME/MQTT_PASSWORD já existem) e ao
+      simulador MQTT, e recusar a subida com MQTT_BIND fora de 127.0.0.1 sem
+      senha. Segurança do ambiente industrial; muda o roteiro de implantação.
+    priority: HIGH
+    complexity: medium
+    estimated_hours: 4
+    status: READY
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [bug, security, mqtt, deploy]
+    dependencies: []
+
+  - id: BL-004
+    title: Servir a API e o painel por HTTPS
+    description: >-
+      A API fala HTTP puro: senha, token e dados de processo trafegam em claro.
+      Acrescentar ao docker compose um proxy reverso com TLS (perfil próprio),
+      repassando SSE e WebSocket; ligar trust proxy na API para o limite de
+      tentativas de login enxergar o IP real; marcar o cookie de sessão como
+      Secure; documentar certificados. Comunicação cifrada é pré-requisito de
+      segurança para implantação real conectada à internet; muda o roteiro de
+      implantação.
+    priority: HIGH
+    complexity: complex
+    estimated_hours: 8
+    status: READY
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [feature, security, https, deploy]
+    dependencies: []
+
+  - id: BL-005
+    title: Repetir os ensaios de carga em servidor dedicado
+    description: >-
+      O ensaio de escalabilidade teve uma execução por nível, numa única máquina
+      (Core i7-10750H, Windows 11) que também rodava banco e simuladores, e o
+      uso de CPU foi medido antes de o tempo real descartar tags fora do
+      cadastro. Repetir a bateria com API e banco em servidor dedicado e o
+      gerador de carga em outra máquina, com ao menos cinco execuções por nível
+      e relato de mediana e dispersão; atualizar docs/experimentos.md e as
+      tabelas de carga do artigo. Mede a prontidão para implantação real.
+    priority: MEDIUM
+    complexity: complex
+    estimated_hours: 16
+    status: BLOCKED
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [test, performance, experiment]
+    dependencies: [BL-007]
+
+  - id: BL-006
+    title: Avaliar formalmente a usabilidade do painel web
+    description: >-
+      O artigo declara que a usabilidade do painel não foi avaliada. Definir um
+      protocolo com tarefas de operação (localizar uma tag em alarme,
+      reconhecer, consultar o histórico, reposicionar um instrumento no
+      sinótico), aplicar a cinco a oito participantes com o questionário SUS,
+      registrar tempo e erros por tarefa e relatar os achados. Mede a prontidão
+      do painel para uso por operadores em ambiente industrial.
+    priority: MEDIUM
+    complexity: complex
+    estimated_hours: 20
+    status: READY
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [test, usability, documentation]
+    dependencies: []
+
+  - id: BL-007
+    title: Testar a implantação por terceiros em máquina limpa
+    description: >-
+      A reprodutibilidade é declarada como diferencial, mas a implantação nunca
+      foi feita por outra pessoa em máquina sem o ambiente de desenvolvimento.
+      Dois ou três voluntários seguem só o README (Docker Compose, perfis app e
+      simulators) em Windows e Linux limpos; registrar passos, tempo e
+      dificuldades, corrigir a documentação e preencher o trecho pendente do
+      artigo. Depende do roteiro final de implantação (broker com senha e
+      HTTPS). Prontidão para implantação real.
+    priority: MEDIUM
+    complexity: complex
+    estimated_hours: 8
+    status: BLOCKED
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [test, deploy, documentation]
+    dependencies: [BL-003, BL-004]
+
+  - id: BL-008
+    title: Módulo de detecção de anomalias em séries temporais
+    description: >-
+      Trabalho futuro central do artigo (continuidade no mestrado): um
+      microsserviço que lê as séries historiadas no TimescaleDB, calcula escores
+      de anomalia por aprendizado de máquina e os devolve pelos canais de tempo
+      quase real já existentes. Avaliar com falhas sintéticas injetadas nos
+      simuladores e com conjuntos públicos de referência. Evolução analítica do
+      produto, fora do objetivo atual do backlog.
+    priority: LOW
+    complexity: complex
+    estimated_hours: 80
+    status: READY
+    created_at: '2026-11-15T12:00:00Z'
+    tags: [feature, machine-learning, analytics]
+    dependencies: []
