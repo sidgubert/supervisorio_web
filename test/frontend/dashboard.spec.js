@@ -176,7 +176,8 @@ describe('alarmes', () => {
     await userEvent.setup().click(button);
 
     await waitFor(() => expect(button).toBeEnabled());
-    expect(button).toHaveAttribute('title', 'Alarme não está aberto');
+    // O motivo fica escrito ao lado do botão, não num title escondido.
+    expect(alarmsPanel().getByRole('alert')).toHaveTextContent('Alarme não está aberto');
   });
 
   it('"Reconhecer todos" envia um pedido só', async () => {

@@ -98,14 +98,16 @@ it('se reconhecer falha, o botão volta a funcionar e explica o motivo', async (
 
   await userEvent.setup().click(button);
 
-  await waitFor(() => expect(button).toHaveTextContent('Erro'));
+  expect(await within(rowOf('LIC-401.PV')).findByRole('alert')).toHaveTextContent(
+    'Alarme não está aberto',
+  );
   expect(button).toBeEnabled();
-  expect(button).toHaveAttribute('title', 'Alarme não está aberto');
+  expect(button).toHaveTextContent('Reconhecer');
 });
 
 it('sem alarmes nas últimas 24 h, avisa', async () => {
   await openHistory({ 'GET /api/alarms/history': [] });
-  expect(screen.getByText('Nenhum alarme nas últimas 24 h.')).toBeInTheDocument();
+  expect(screen.getByText(/^Nenhum alarme nas últimas 24 h\./)).toBeInTheDocument();
 });
 
 it('"Atualizar" busca a lista de novo', async () => {

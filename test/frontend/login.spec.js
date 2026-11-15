@@ -49,7 +49,11 @@ it('credenciais erradas (401): avisa e continua na página', async () => {
 
   await signIn('operador', 'errada');
 
-  expect(await screen.findByText('Usuário ou senha inválidos.')).toBeVisible();
+  expect(
+    await screen.findByText(
+      'Usuário ou senha não conferem. Digite de novo ou peça a um administrador para redefinir a senha.',
+    ),
+  ).toBeVisible();
   expect(localStorage.getItem('talos_token')).toBeNull();
   expect(mockGoTo).not.toHaveBeenCalled();
 });
@@ -73,7 +77,31 @@ it('sem conexão com o servidor: avisa', async () => {
 
   await signIn();
 
-  expect(await screen.findByText('Sem conexão com o servidor.')).toBeVisible();
+  expect(
+    await screen.findByText('Sem conexão com o servidor. Confira a rede e tente de novo.'),
+  ).toBeVisible();
+});
+
+it('campo vazio: o erro aparece ao sair do campo e some ao voltar a editar', async () => {
+  const api = await openLogin();
+  const user = userEvent.setup();
+  const name = screen.getByLabelText('Usuário');
+
+  await user.click(name);
+  expect(screen.queryByText('Preencha este campo.')).toBeNull(); // ainda não saiu do campo
+  await user.tab();
+  expect(screen.getByText('Preencha este campo.')).toBeVisible();
+  expect(name).toHaveAttribute('aria-invalid', 'true');
+
+  // Voltar ao campo limpa o erro dele (o da senha, que ficou vazia, aparece).
+  await user.type(name, 'o');
+  expect(name.nextElementSibling).toBeEmptyDOMElement();
+  expect(name).not.toHaveAttribute('aria-invalid');
+
+  // Enviar incompleto: o botão responde, mostra os erros e não chama a API.
+  await user.click(screen.getByRole('button', { name: 'Entrar' }));
+  expect(screen.getByLabelText('Senha')).toHaveAttribute('aria-invalid', 'true');
+  expect(requestsTo(api, 'POST', '/api/auth/login')).toHaveLength(0);
 });
 
 it('a mensagem de erro some na tentativa seguinte', async () => {
@@ -86,7 +114,9 @@ it('a mensagem de erro some na tentativa seguinte', async () => {
   });
 
   await signIn('operador', 'errada');
-  const message = await screen.findByText('Usuário ou senha inválidos.');
+  const message = await screen.findByText(
+    'Usuário ou senha não conferem. Digite de novo ou peça a um administrador para redefinir a senha.',
+  );
   await userEvent.setup().click(screen.getByRole('button', { name: 'Entrar' }));
 
   expect(message).not.toBeVisible();

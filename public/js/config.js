@@ -1,5 +1,5 @@
 import { apiFetch } from './auth.js';
-import { apiError, esc } from './util.js';
+import { apiError, emptyBlock, errorDetails, esc, showLoadError } from './util.js';
 
 const list = document.getElementById('config-list');
 
@@ -46,7 +46,8 @@ function formFor(cfg) {
         ${input('synopticY', 'Sinótico Y (%)', cfg.synopticY, 'type="number" min="0" max="100" step="1"')}
       </div>
       <button type="submit" class="btn">Salvar</button>
-      <span class="config-msg"></span>
+      <button type="button" class="btn btn--ghost" data-act="discard" hidden>Descartar rascunho</button>
+      <span class="config-msg" role="status"></span>
     </form>`;
 }
 
@@ -62,8 +63,41 @@ function bodyOf(form) {
   return body;
 }
 
+/**
+ * Rascunho: o que foi digitado e ainda não foi salvo fica guardado nesta aba
+ * (sessionStorage), por tag. Trocar de tela ou recarregar a página não perde
+ * a edição; salvar ou descartar apaga o rascunho.
+ */
+const draftKey = (tag) => `talos_draft_tag:${tag}`;
+const valuesOf = (form) => Object.fromEntries(new FormData(form).entries());
+
+function restoreDraft(form) {
+  let draft;
+  try {
+    draft = JSON.parse(sessionStorage.getItem(draftKey(form.dataset.tag)));
+  } catch {
+    return;
+  }
+  if (!draft) return;
+  for (const [name, value] of Object.entries(draft)) {
+    if (form.elements[name]) form.elements[name].value = value;
+  }
+  form.querySelector('[data-act="discard"]').hidden = false;
+  form.querySelector('.config-msg').textContent = 'Rascunho restaurado; ainda não foi salvo.';
+}
+
 function bindForms() {
   list.querySelectorAll('form').forEach((form) => {
+    const discard = form.querySelector('[data-act="discard"]');
+    restoreDraft(form);
+    form.addEventListener('input', () => {
+      sessionStorage.setItem(draftKey(form.dataset.tag), JSON.stringify(valuesOf(form)));
+      discard.hidden = false;
+    });
+    discard.addEventListener('click', () => {
+      sessionStorage.removeItem(draftKey(form.dataset.tag));
+      void initConfig();
+    });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const msg = form.querySelector('.config-msg');
@@ -74,6 +108,8 @@ function bindForms() {
         body: JSON.stringify(bodyOf(form)),
       });
       if (res.ok) {
+        sessionStorage.removeItem(draftKey(form.dataset.tag));
+        discard.hidden = true;
         msg.classList.add('ok');
         msg.textContent = 'Salvo.';
         window.dispatchEvent(new CustomEvent('talos:tags-changed'));
@@ -87,7 +123,22 @@ function bindForms() {
 
 export async function initConfig() {
   const res = await apiFetch('/api/tags');
-  if (!res.ok) return;
-  list.innerHTML = (await res.json()).map(formFor).join('');
+  if (!res.ok) {
+    showLoadError(list, {
+      what: 'o cadastro de tags',
+      details: errorDetails(res),
+      retry: initConfig,
+    });
+    return;
+  }
+  const tags = await res.json();
+  if (tags.length === 0) {
+    list.innerHTML = emptyBlock({
+      title: 'Nenhuma tag cadastrada',
+      text: 'Cada tag cadastrada ganha aqui a sua faixa, os limites de alarme e a posição no sinótico. O cadastro é feito pela API: POST /api/tags (exemplos no README).',
+    });
+    return;
+  }
+  list.innerHTML = tags.map(formFor).join('');
   bindForms();
 }

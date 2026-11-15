@@ -1,5 +1,16 @@
 import { apiFetch, can } from './auth.js';
-import { apiError, esc, fmtNum, fmtTime, LEVEL_LABEL, STATE_LABEL } from './util.js';
+import {
+  apiError,
+  emptyBlock,
+  errorDetails,
+  esc,
+  fmtNum,
+  fmtTime,
+  LEVEL_LABEL,
+  showInlineError,
+  showLoadError,
+  STATE_LABEL,
+} from './util.js';
 
 /** Pontos por gráfico (com amostras a cada 1 s, os últimos 2 min). */
 const MAX_POINTS = 120;
@@ -47,7 +58,7 @@ async function ack(id, btn) {
   const res = await apiFetch(`/api/alarms/${encodeURIComponent(id)}/ack`, { method: 'POST' });
   if (!res.ok) {
     btn.disabled = false;
-    btn.title = await apiError(res);
+    showInlineError(btn, await apiError(res));
   }
   // O estado novo chega pelo stream (evento 'acknowledged').
 }
@@ -102,14 +113,16 @@ function renderAlarms() {
 
 ackAllBtn.addEventListener('click', async () => {
   ackAllBtn.disabled = true;
-  await apiFetch('/api/alarms/ack-all', { method: 'POST' });
+  const res = await apiFetch('/api/alarms/ack-all', { method: 'POST' });
   ackAllBtn.disabled = false;
+  if (!res.ok) showInlineError(ackAllBtn, await apiError(res));
 });
 
 // ---- gráficos ----
 
 function createChartCard(tag, source) {
   emptyState?.remove();
+  grid.querySelector('.empty-block, .load-error')?.remove();
   const card = document.createElement('article');
   card.className = 'tag-card';
   card.innerHTML = `
@@ -121,7 +134,7 @@ function createChartCard(tag, source) {
       <span class="source-pill source-pill--${esc(source)}">${esc(source)}</span>
     </div>
     <div class="tag-card__value"><span class="val">—</span> <small class="unit"></small></div>
-    <div class="chart-wrap"><canvas></canvas></div>`;
+    <div class="chart-wrap"><canvas role="img" aria-label="Gráfico de ${esc(tag)}, últimos minutos"></canvas></div>`;
   // O alarme pode ter chegado antes do primeiro ponto da tag.
   card.classList.toggle('tag-card--alarm', tagsInAlarm().has(tag));
   grid.appendChild(card);
@@ -220,8 +233,22 @@ export async function initDashboard() {
   }
 
   const tagsRes = await apiFetch('/api/dashboard/tags');
-  if (tagsRes.ok) {
-    const latest = await tagsRes.json();
-    await Promise.all(latest.map((t) => loadHistory(t.tag, t.source)));
+  if (!tagsRes.ok) {
+    showLoadError(grid, {
+      what: 'as variáveis de processo',
+      details: errorDetails(tagsRes),
+      retry: () => window.location.reload(),
+    });
+    return;
+  }
+  const latest = await tagsRes.json();
+  await Promise.all(latest.map((t) => loadHistory(t.tag, t.source)));
+  // Nada chegou ainda: diz o que aparece aqui e por onde começar.
+  if (charts.size === 0 && emptyState?.isConnected) {
+    emptyState.outerHTML = emptyBlock({
+      title: 'Nenhuma variável recebida ainda',
+      text: 'Cada tag do cadastro ganha um gráfico ao vivo aqui, assim que a primeira amostra chegar.',
+      action: can('engineer') ? { href: '#config', label: 'Abrir a configuração de tags' } : null,
+    });
   }
 }

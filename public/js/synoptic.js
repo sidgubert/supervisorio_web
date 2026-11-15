@@ -172,7 +172,7 @@ function renderQueue() {
     .slice(0, QUEUE_MAX);
   if (rows.length === 0) {
     queueEl.innerHTML =
-      '<li class="queue__empty">Nenhuma tag no sinótico. Escolha o desenho em Configuração.</li>';
+      '<li class="queue__empty">Nenhuma tag no sinótico. Escolha o desenho de cada tag para vê-la aqui com a leitura ao vivo. <a href="#config">Abrir a configuração de tags</a></li>';
     return;
   }
   queueEl.innerHTML = rows

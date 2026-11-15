@@ -38,5 +38,6 @@ afterEach(() => {
   jest.restoreAllMocks();
   document.body.innerHTML = '';
   window.localStorage.clear();
+  window.sessionStorage.clear();
   window.location.hash = '';
 });

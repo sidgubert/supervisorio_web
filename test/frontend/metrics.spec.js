@@ -160,8 +160,9 @@ it('se a exportação falha, explica no botão', async () => {
 
   await userEvent.setup().click(button);
 
-  await waitFor(() =>
-    expect(button).toHaveAttribute('title', 'minutes deve estar entre 1 e 10080'),
+  expect(await screen.findByText('minutes deve estar entre 1 e 10080')).toHaveAttribute(
+    'role',
+    'alert',
   );
   expect(button).toBeEnabled();
 });
